@@ -187,32 +187,128 @@ function buildYtdConversion({
   return { ytdRows, ytdConversion };
 }
 
-function buildPnlWorkbook(conversion) {
-  const wb = XLSX.utils.book_new();
-  const rows = [];
+const MONTH_NAMES = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre"
+];
 
-  rows.push({ Concepto: "CUENTA DE PERDIDAS Y GANANCIAS (PGC ESPANOL)", Importe_MXN: "" });
-  rows.push({ Concepto: "", Importe_MXN: "" });
+function comparePgcCode(a, b) {
+  const an = Number(String(a || "").replace(/\D/g, ""));
+  const bn = Number(String(b || "").replace(/\D/g, ""));
+  if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+  return String(a || "").localeCompare(String(b || ""));
+}
 
-  for (const [sectionName, section] of Object.entries(conversion.pnl.sections || {})) {
-    rows.push({ Concepto: sectionName, Importe_MXN: "" });
+function extractPnlLineMap(conversion) {
+  const map = new Map();
+  for (const section of Object.values(conversion?.pnl?.sections || {})) {
     for (const item of section.items || []) {
-      rows.push({
-        Concepto: `${item.pgcCode} ${item.pgcName}`,
-        Importe_MXN: Number(item.totalMXN || 0)
-      });
+      const key = `${item.pgcCode}__${item.pgcName}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          cuenta: item.pgcCode,
+          descripcion: item.pgcName,
+          mxn: Number(item.totalMXN || 0),
+          eur: Number(item.totalEUR || 0)
+        });
+      } else {
+        const current = map.get(key);
+        current.mxn += Number(item.totalMXN || 0);
+        current.eur += Number(item.totalEUR || 0);
+      }
     }
-    rows.push({ Concepto: `Subtotal ${sectionName}`, Importe_MXN: Number(section.totalMXN || 0) });
-    rows.push({ Concepto: "", Importe_MXN: "" });
+  }
+  return map;
+}
+
+function buildPnlWorkbookByMonths({
+  year,
+  month,
+  exchangeRate,
+  currentRows,
+  currentManualMappings
+}) {
+  const wb = XLSX.utils.book_new();
+  const monthConversions = new Map();
+
+  for (let m = 1; m <= 12; m += 1) {
+    if (m > month) break;
+    if (m === month) {
+      monthConversions.set(
+        m,
+        convertRows(currentRows, exchangeRate, currentManualMappings, { year, month: m })
+      );
+      continue;
+    }
+    const payload = loadPeriodData({ year, month: m });
+    if (!payload) continue;
+    monthConversions.set(
+      m,
+      convertRows(payload.rows, payload.period.exchangeRate || exchangeRate, payload.manualMappings, { year, month: m })
+    );
   }
 
-  rows.push({ Concepto: "RESULTADO DE EXPLOTACION", Importe_MXN: Number(conversion.pnl.resultadoExplotacionMx || 0) });
-  rows.push({ Concepto: "RESULTADO FINANCIERO", Importe_MXN: Number(conversion.pnl.resultadoFinancieroMx || 0) });
-  rows.push({ Concepto: "OTROS RESULTADOS", Importe_MXN: Number(conversion.pnl.otrosResultadosMx || 0) });
-  rows.push({ Concepto: "RESULTADO ANTES DE IMPUESTOS", Importe_MXN: Number(conversion.pnl.resultadoAntesImpuestosMx || 0) });
+  const lines = new Map();
+  for (const [m, conversion] of monthConversions.entries()) {
+    const lineMap = extractPnlLineMap(conversion);
+    for (const line of lineMap.values()) {
+      const key = `${line.cuenta}__${line.descripcion}`;
+      if (!lines.has(key)) {
+        lines.set(key, { cuenta: line.cuenta, descripcion: line.descripcion, monthsMXN: {}, monthsEUR: {} });
+      }
+      const target = lines.get(key);
+      target.monthsMXN[m] = Number(line.mxn || 0);
+      target.monthsEUR[m] = Number(line.eur || 0);
+    }
+  }
 
-  const ws = XLSX.utils.json_to_sheet(rows);
-  XLSX.utils.book_append_sheet(wb, ws, "PyG_ESP");
+  const baseRows = Array.from(lines.values()).sort((a, b) => {
+    const byCode = comparePgcCode(a.cuenta, b.cuenta);
+    if (byCode !== 0) return byCode;
+    return a.descripcion.localeCompare(b.descripcion);
+  });
+
+  const buildRowsForCurrency = (field) => {
+    const rows = baseRows.map((line) => {
+      const row = {
+        Cuenta: line.cuenta,
+        Descripcion: line.descripcion
+      };
+      for (let m = 1; m <= 12; m += 1) {
+        row[MONTH_NAMES[m - 1]] = Number(line[field][m] || 0);
+      }
+      return row;
+    });
+
+    const totalRow = { Cuenta: "TOTAL", Descripcion: "Resultado del periodo (PyG)" };
+    for (let m = 1; m <= 12; m += 1) {
+      const conversion = monthConversions.get(m);
+      totalRow[MONTH_NAMES[m - 1]] = Number(
+        field === "monthsEUR"
+          ? conversion?.pnl?.resultadoAntesImpuestosEur || 0
+          : conversion?.pnl?.resultadoAntesImpuestosMx || 0
+      );
+    }
+    rows.push(totalRow);
+    return rows;
+  };
+
+  const wsMXN = XLSX.utils.json_to_sheet(buildRowsForCurrency("monthsMXN"));
+  XLSX.utils.book_append_sheet(wb, wsMXN, "P&L_MXN");
+
+  const wsEUR = XLSX.utils.json_to_sheet(buildRowsForCurrency("monthsEUR"));
+  XLSX.utils.book_append_sheet(wb, wsEUR, "P&L_EUR");
+
   return wb;
 }
 
@@ -440,8 +536,15 @@ app.post("/api/export-pnl", (req, res) => {
     }
 
     const normalized = normalizeRows(rows);
-    const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings, period);
-    const workbook = buildPnlWorkbook(conversion);
+    const exportYear = Number(period?.year) || new Date().getFullYear();
+    const exportMonth = Number(period?.month) || new Date().getMonth() + 1;
+    const workbook = buildPnlWorkbookByMonths({
+      year: exportYear,
+      month: exportMonth,
+      exchangeRate: Number(exchangeRate) || 0.046,
+      currentRows: normalized.rows,
+      currentManualMappings: manualMappings
+    });
     const outputBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 
     const periodLabel =
