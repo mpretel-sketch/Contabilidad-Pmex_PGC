@@ -145,8 +145,11 @@ export default function App() {
   const [periods, setPeriods] = useState([]);
   const [viewScope, setViewScope] = useState("month");
   const detailTableRef = useRef(null);
+  const detailTopScrollRef = useRef(null);
+  const syncScrollLockRef = useRef(false);
   const [detailScrollTop, setDetailScrollTop] = useState(0);
   const [detailViewportHeight, setDetailViewportHeight] = useState(560);
+  const [detailTableWidth, setDetailTableWidth] = useState(2860);
 
   useEffect(() => {
     localStorage.setItem("pmex_period_month", String(periodMonth));
@@ -532,11 +535,42 @@ export default function App() {
     if (tab !== "partidas") return;
     setDetailScrollTop(0);
     if (detailTableRef.current) detailTableRef.current.scrollTop = 0;
+    if (detailTopScrollRef.current) detailTopScrollRef.current.scrollLeft = 0;
   }, [detailSearch, statusFilter, tab]);
+
+  useEffect(() => {
+    const updateWidths = () => {
+      const tableEl = detailTableRef.current?.querySelector(".detail-table");
+      if (!tableEl) return;
+      const nextWidth = Math.ceil(tableEl.scrollWidth || 2860);
+      setDetailTableWidth(nextWidth);
+    };
+    updateWidths();
+    window.addEventListener("resize", updateWidths);
+    return () => window.removeEventListener("resize", updateWidths);
+  }, [tab, sourceRows.length, statusFilter, detailSearch]);
+
+  const onTopHorizontalScroll = (event) => {
+    if (!detailTableRef.current) return;
+    if (syncScrollLockRef.current) return;
+    syncScrollLockRef.current = true;
+    detailTableRef.current.scrollLeft = event.currentTarget.scrollLeft || 0;
+    requestAnimationFrame(() => {
+      syncScrollLockRef.current = false;
+    });
+  };
 
   const onDetailTableScroll = (event) => {
     setDetailScrollTop(event.currentTarget.scrollTop || 0);
     setDetailViewportHeight(event.currentTarget.clientHeight || 560);
+    if (detailTopScrollRef.current) {
+      if (syncScrollLockRef.current) return;
+      syncScrollLockRef.current = true;
+      detailTopScrollRef.current.scrollLeft = event.currentTarget.scrollLeft || 0;
+      requestAnimationFrame(() => {
+        syncScrollLockRef.current = false;
+      });
+    }
   };
 
   return (
@@ -705,6 +739,9 @@ export default function App() {
               <span>Filas visibles: {virtualRows.rows.length}</span>
               <span>Total filtradas: {virtualRows.total}</span>
               <span>Render virtual activo</span>
+            </div>
+            <div className="table-scroll-top" ref={detailTopScrollRef} onScroll={onTopHorizontalScroll}>
+              <div className="table-scroll-inner" style={{ width: `${detailTableWidth}px` }} />
             </div>
             <div className="table-wrap" ref={detailTableRef} onScroll={onDetailTableScroll}>
               <table className="detail-table">
