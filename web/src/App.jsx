@@ -708,9 +708,32 @@ export default function App() {
             </div>
             <div className="table-wrap" ref={detailTableRef} onScroll={onDetailTableScroll}>
               <table className="detail-table">
+                <colgroup>
+                  <col style={{ width: "150px" }} />
+                  <col style={{ width: "260px" }} />
+                  <col style={{ width: "115px" }} />
+                  <col style={{ width: "115px" }} />
+                  <col style={{ width: "125px" }} />
+                  <col style={{ width: "125px" }} />
+                  <col style={{ width: "120px" }} />
+                  <col style={{ width: "120px" }} />
+                  <col style={{ width: "115px" }} />
+                  <col style={{ width: "115px" }} />
+                  <col style={{ width: "120px" }} />
+                  <col style={{ width: "125px" }} />
+                  <col style={{ width: "110px" }} />
+                  <col style={{ width: "260px" }} />
+                  <col style={{ width: "95px" }} />
+                  <col style={{ width: "230px" }} />
+                  <col style={{ width: "155px" }} />
+                  <col style={{ width: "170px" }} />
+                  <col style={{ width: "150px" }} />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th>Cuenta MX</th><th>Descripcion</th><th className="right">SID</th><th className="right">SIA</th><th className="right">Cargos</th><th className="right">Abonos</th>
+                    <th className="sticky-col sticky-col-1">Cuenta MX</th>
+                    <th className="sticky-col sticky-col-2">Descripcion</th>
+                    <th className="right">SID</th><th className="right">SIA</th><th className="right">Cargos</th><th className="right">Abonos</th>
                     <th className="right">Suma Debe</th><th className="right">Suma Haber</th><th className="right">SFD</th><th className="right">SFA</th><th className="right">Saldo Neto</th>
                     <th>Estado</th><th>PGC asignado</th><th>Nombre asignado</th><th>PGC</th><th>Nombre PGC</th><th>Grupo</th><th>Subgrupo</th><th className="right">Acciones</th>
                   </tr>
@@ -731,8 +754,8 @@ export default function App() {
                     const saldoNeto = Number(row.sfd || 0) - Number(row.sfa || 0);
                     return (
                       <tr key={row._rowId} className={isSummary ? "summary-row" : isMapped ? "mapped-row" : "unmapped-row"}>
-                        <td><input value={row.code} onChange={(e) => updateRow(row._rowId, "code", e.target.value)} className="cell-input" /></td>
-                        <td><input value={row.name} onChange={(e) => updateRow(row._rowId, "name", e.target.value)} className="cell-input" /></td>
+                        <td className="sticky-col sticky-col-1"><input value={row.code} onChange={(e) => updateRow(row._rowId, "code", e.target.value)} className="cell-input" /></td>
+                        <td className="sticky-col sticky-col-2"><input value={row.name} onChange={(e) => updateRow(row._rowId, "name", e.target.value)} className="cell-input" /></td>
                         <td className="right"><input value={row.sid} onChange={(e) => updateRow(row._rowId, "sid", e.target.value)} className="cell-input num" /></td>
                         <td className="right"><input value={row.sia} onChange={(e) => updateRow(row._rowId, "sia", e.target.value)} className="cell-input num" /></td>
                         <td className="right"><input value={row.cargos} onChange={(e) => updateRow(row._rowId, "cargos", e.target.value)} className="cell-input num" /></td>

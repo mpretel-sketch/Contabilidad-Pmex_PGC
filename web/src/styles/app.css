@@ -499,6 +499,7 @@ select {
   background: #fff;
   border-radius: 12px;
   border: 1px solid var(--line);
+  overscroll-behavior: contain;
 }
 
 .table-info-bar {
@@ -522,6 +523,11 @@ table {
   border-collapse: collapse;
 }
 
+.detail-table {
+  min-width: 2860px;
+  width: max-content;
+}
+
 th,
 td {
   font-size: 12px;
@@ -537,6 +543,7 @@ th {
   position: sticky;
   top: 0;
   z-index: 2;
+  white-space: nowrap;
 }
 
 tr:hover {
@@ -554,13 +561,42 @@ tr:hover {
 .detail-table .cell-input,
 .detail-table .cell-select {
   width: 100%;
-  min-width: 100px;
+  min-width: 0;
   font-size: 12px;
 }
 
 .detail-table .cell-input.num {
   text-align: right;
-  min-width: 85px;
+  min-width: 0;
+}
+
+.detail-table td,
+.detail-table th {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.detail-table .sticky-col {
+  position: sticky;
+  z-index: 3;
+}
+
+.detail-table th.sticky-col {
+  z-index: 5;
+  background: #f7fbff;
+}
+
+.detail-table .sticky-col-1 {
+  left: 0;
+}
+
+.detail-table .sticky-col-2 {
+  left: 150px;
+}
+
+.detail-table td.sticky-col {
+  background: inherit;
+  box-shadow: 1px 0 0 #e8eff7;
 }
 
 .mini-btn {
