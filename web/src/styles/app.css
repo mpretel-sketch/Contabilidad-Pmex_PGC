@@ -394,7 +394,7 @@ select {
 .cards {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   align-items: stretch;
 }
 
@@ -403,13 +403,13 @@ select {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px 12px;
-  min-height: 84px;
+  min-height: 96px;
   overflow: hidden;
 }
 
 .card .label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -421,7 +421,7 @@ select {
 .card strong {
   display: block;
   margin-top: 6px;
-  font-size: 18px;
+  font-size: 28px;
   letter-spacing: -0.01em;
   line-height: 1.1;
   white-space: nowrap;
@@ -502,7 +502,8 @@ select {
 
 .table-wrap {
   margin-top: 12px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
   height: clamp(360px, 58vh, 760px);
   max-height: none;
   max-width: 100%;
@@ -551,8 +552,9 @@ table {
 }
 
 .detail-table {
-  min-width: 2860px;
-  width: max-content;
+  min-width: 3600px;
+  width: 3600px;
+  table-layout: fixed;
 }
 
 th,
@@ -588,13 +590,24 @@ tr:hover {
 .detail-table .cell-input,
 .detail-table .cell-select {
   width: 100%;
-  min-width: 0;
+  min-width: 92px;
   font-size: 12px;
 }
 
 .detail-table .cell-input.num {
   text-align: right;
-  min-width: 0;
+  min-width: 92px;
+}
+
+.table-wrap::-webkit-scrollbar,
+.table-scroll-top::-webkit-scrollbar {
+  height: 12px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb,
+.table-scroll-top::-webkit-scrollbar-thumb {
+  background: #b7c8dc;
+  border-radius: 999px;
 }
 
 .detail-table td,
