@@ -994,9 +994,6 @@ export default function App() {
             <div className="pnl-toolbar">
               <button type="button" className="mini-btn" onClick={() => setAllPnlCollapsed(false)}>Expandir todo</button>
               <button type="button" className="mini-btn" onClick={() => setAllPnlCollapsed(true)}>Colapsar todo</button>
-              <span className="pnl-total-inline">
-                Total del periodo: <strong>{toDisplay(showEur ? reportData.pnl.resultadoAntesImpuestosEur : reportData.pnl.resultadoAntesImpuestosMx, showEur)}</strong>
-              </span>
             </div>
             {pnlSectionEntries.map(([section, content]) => (
               <div className="block" key={section}>
@@ -1016,6 +1013,12 @@ export default function App() {
               <span>Total del periodo (Resultado PyG)</span>
               <span>{toDisplay(showEur ? reportData.pnl.resultadoAntesImpuestosEur : reportData.pnl.resultadoAntesImpuestosMx, showEur)}</span>
             </p>
+            <div className="result-card">
+              <span className="label">Resultado del periodo</span>
+              <strong className={(showEur ? reportData.pnl.resultadoAntesImpuestosEur : reportData.pnl.resultadoAntesImpuestosMx) < 0 ? "bad" : "ok"}>
+                {toDisplay(showEur ? reportData.pnl.resultadoAntesImpuestosEur : reportData.pnl.resultadoAntesImpuestosMx, showEur)}
+              </strong>
+            </div>
           </section>
         )}
 

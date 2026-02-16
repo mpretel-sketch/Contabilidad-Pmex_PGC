@@ -795,6 +795,29 @@ tr:hover {
   color: var(--ink);
 }
 
+.result-card {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--primary);
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 12px;
+}
+
+.result-card .label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.result-card strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 24px;
+}
+
 .section-toggle {
   width: 100%;
   border: 1px solid var(--line);
