@@ -27,13 +27,13 @@ body {
     radial-gradient(circle at 0% 0%, #d7e6f7 0, transparent 35%),
     radial-gradient(circle at 100% 100%, #d3efe8 0, transparent 35%),
     var(--bg);
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 html,
 #root {
   width: 100%;
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 button,
@@ -315,6 +315,10 @@ select {
   overflow: visible;
 }
 
+.workspace-main > section {
+  min-width: 0;
+}
+
 .sidebar {
   min-width: 0;
 }
@@ -394,8 +398,9 @@ select {
 .cards {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: stretch;
+  width: 100%;
 }
 
 .card {
@@ -502,6 +507,8 @@ select {
 
 .table-wrap {
   margin-top: 12px;
+  width: 100%;
+  min-width: 0;
   overflow-x: scroll;
   overflow-y: auto;
   height: clamp(360px, 58vh, 760px);
@@ -553,8 +560,8 @@ table {
 }
 
 .detail-table {
-  min-width: 3200px;
-  width: max-content;
+  min-width: 3400px;
+  width: 3400px;
   table-layout: fixed;
 }
 
@@ -896,7 +903,7 @@ tr:hover {
   }
 
   .cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .footer {
@@ -913,7 +920,7 @@ tr:hover {
 
 @media (max-width: 640px) {
   .cards {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .table-nav {
@@ -924,5 +931,11 @@ tr:hover {
     padding: 4px;
     border: 1px solid var(--line);
     border-radius: 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  .cards {
+    grid-template-columns: 1fr;
   }
 }
