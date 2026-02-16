@@ -93,7 +93,9 @@ const parseNum = (value) => {
 };
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const baseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+  const safePath = path.startsWith("/") ? path : `/${path}`;
+  const response = await fetch(`${baseUrl}${safePath}`, options);
   if (!response.ok) {
     const maybeJson = await response.json().catch(() => ({}));
     throw new Error(maybeJson.error || "Error en la peticion");
