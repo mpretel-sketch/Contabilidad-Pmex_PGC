@@ -39,13 +39,13 @@ app.get("/api/mapping/meta", (_req, res) => {
 
 app.post("/api/convert", (req, res) => {
   try {
-    const { rows = [], exchangeRate = 0.046, manualMappings = {} } = req.body || {};
+    const { rows = [], exchangeRate = 0.046, manualMappings = {}, period = null } = req.body || {};
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ error: "Debes enviar filas contables en 'rows'." });
     }
 
     const normalized = normalizeRows(rows);
-    const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings);
+    const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings, period);
     return res.json(conversion);
   } catch (error) {
     return res.status(500).json({ error: error.message || "No se pudo convertir la informacion." });
@@ -60,7 +60,15 @@ app.post("/api/convert/upload", upload.single("file"), (req, res) => {
 
     const rows = parseWorkbookBuffer(req.file.buffer);
     const exchangeRate = Number(req.body.exchangeRate) || 0.046;
-    const conversion = convertRows(rows, exchangeRate);
+    let period = { month: Number(req.body.month) || null, year: Number(req.body.year) || null };
+    if (req.body.period) {
+      try {
+        period = JSON.parse(req.body.period);
+      } catch (_error) {
+        period = { month: Number(req.body.month) || null, year: Number(req.body.year) || null };
+      }
+    }
+    const conversion = convertRows(rows, exchangeRate, {}, period);
     return res.json(conversion);
   } catch (error) {
     return res.status(400).json({ error: error.message || "No se pudo leer el archivo." });
@@ -69,18 +77,22 @@ app.post("/api/convert/upload", upload.single("file"), (req, res) => {
 
 app.post("/api/export", (req, res) => {
   try {
-    const { rows = [], exchangeRate = 0.046, manualMappings = {} } = req.body || {};
+    const { rows = [], exchangeRate = 0.046, manualMappings = {}, period = null } = req.body || {};
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ error: "Debes enviar filas contables en 'rows'." });
     }
 
     const normalized = normalizeRows(rows);
-    const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings);
+    const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings, period);
     const workbook = buildExportWorkbook(conversion);
     const outputBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 
+    const periodLabel =
+      period?.month && period?.year
+        ? `${String(period.year)}-${String(period.month).padStart(2, "0")}`
+        : new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename=conversion_pgc_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    res.setHeader("Content-Disposition", `attachment; filename=conversion_pgc_${periodLabel}.xlsx`);
     return res.send(outputBuffer);
   } catch (error) {
     return res.status(500).json({ error: error.message || "No se pudo generar el archivo Excel." });

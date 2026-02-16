@@ -73,7 +73,15 @@ body {
   gap: 6px;
 }
 
+.period-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .rate-control input,
+.period-control select,
+.period-control input,
 .controls select,
 .controls input {
   border: 1px solid var(--line);
@@ -248,12 +256,21 @@ body {
   color: #9f1239;
 }
 
+.badge-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .detail-table tr.mapped-row {
   background: #f8fffb;
 }
 
 .detail-table tr.unmapped-row {
   background: #fff7f8;
+}
+
+.detail-table tr.summary-row {
+  background: #fff9eb;
 }
 
 .table-wrap {

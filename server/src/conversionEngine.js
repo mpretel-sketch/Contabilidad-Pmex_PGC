@@ -141,6 +141,7 @@ const parseNumber = (value) => {
 };
 
 const parseString = (value) => String(value ?? "").trim();
+const isZeroSegment = (segment) => /^0+$/.test(String(segment ?? "").trim());
 
 const mapField = (rawKey) => {
   const key = normalizeHeader(rawKey);
@@ -166,6 +167,7 @@ export function normalizeRows(rawRows) {
       if (!transformed.code) return null;
       return {
         _rowId: parseString(row._rowId || row.rowId || row.id) || `row-${index + 1}`,
+        _isNew: Boolean(row._isNew),
         code: String(transformed.code).trim(),
         name: String(transformed.name ?? "Sin descripcion").trim(),
         sid: parseNumber(transformed.sid),
@@ -221,7 +223,26 @@ const normalizeManualMapping = (manual) => {
   };
 };
 
-export function convertRows(rows, exchangeRate = 0.046, manualMappings = {}) {
+const detectSummaryLine = (row, allRows) => {
+  const code = String(row.code ?? "").trim();
+  if (!code) return false;
+  if (code.startsWith("000-000-")) return true;
+
+  const segments = code.split("-");
+  let trailingZeroCount = 0;
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    if (isZeroSegment(segments[i])) trailingZeroCount += 1;
+    else break;
+  }
+
+  if (trailingZeroCount === 0) return false;
+  const prefixLen = segments.length - trailingZeroCount;
+  if (prefixLen <= 0) return true;
+  const prefix = `${segments.slice(0, prefixLen).join("-")}-`;
+  return allRows.some((candidate) => candidate.code !== code && String(candidate.code ?? "").startsWith(prefix));
+};
+
+export function convertRows(rows, exchangeRate = 0.046, manualMappings = {}, period = null) {
   const convertedData = rows.map((row) => {
     const manualMapping = normalizeManualMapping(
       manualMappings[row._rowId] || manualMappings[row.code] || row.manualMapping
@@ -232,6 +253,10 @@ export function convertRows(rows, exchangeRate = 0.046, manualMappings = {}) {
     const saldoEur = saldo * exchangeRate;
     const grupo = mapping?.grupo ?? "Sin clasificar";
     const displayMXN = accountDisplayValue(grupo, saldo);
+
+    const isSummaryLine = detectSummaryLine(row, rows);
+    const excludedByUser = Boolean(row._excludeFromAnalysis);
+    const excludeFromAnalysis = isSummaryLine || excludedByUser;
 
     return {
       ...row,
@@ -244,12 +269,16 @@ export function convertRows(rows, exchangeRate = 0.046, manualMappings = {}) {
       saldoEur,
       displayMXN,
       displayEUR: displayMXN * exchangeRate,
-      manualMappingApplied: Boolean(manualMapping)
+      manualMappingApplied: Boolean(manualMapping),
+      isSummaryLine,
+      excludeFromAnalysis
     };
   });
 
+  const rowsForAnalysis = convertedData.filter((row) => !row.excludeFromAnalysis);
+
   const aggregateMap = {};
-  for (const row of convertedData) {
+  for (const row of rowsForAnalysis) {
     const key = row.pgcCode;
     if (!aggregateMap[key]) {
       aggregateMap[key] = {
@@ -321,22 +350,25 @@ export function convertRows(rows, exchangeRate = 0.046, manualMappings = {}) {
   const resultadoExplotacionEur = ingresosEur - gastosEur;
   const resultadoAntesImpuestosEur = resultadoExplotacionEur + resultadoFinancieroEur + otrosResultadosEur;
 
-  const unmappedRows = convertedData.filter((item) => item.pgcCode === "SIN MAPEO");
+  const unmappedRows = rowsForAnalysis.filter((item) => item.pgcCode === "SIN MAPEO");
 
   const balances = {
-    totalDebeInicial: convertedData.reduce((acc, r) => acc + r.sid, 0),
-    totalHaberInicial: convertedData.reduce((acc, r) => acc + r.sia, 0),
-    totalDebeFinal: convertedData.reduce((acc, r) => acc + r.sfd, 0),
-    totalHaberFinal: convertedData.reduce((acc, r) => acc + r.sfa, 0)
+    totalDebeInicial: rowsForAnalysis.reduce((acc, r) => acc + r.sid, 0),
+    totalHaberInicial: rowsForAnalysis.reduce((acc, r) => acc + r.sia, 0),
+    totalDebeFinal: rowsForAnalysis.reduce((acc, r) => acc + r.sfd, 0),
+    totalHaberFinal: rowsForAnalysis.reduce((acc, r) => acc + r.sfa, 0)
   };
 
   return {
     metadata: {
       exchangeRate,
       rowCount: convertedData.length,
+      analyzedRowCount: rowsForAnalysis.length,
+      summaryExcludedCount: convertedData.filter((row) => row.isSummaryLine).length,
       unmappedCount: unmappedRows.length,
       manualMappingCount: convertedData.filter((row) => row.manualMappingApplied).length,
-      mappedCoveragePct: convertedData.length ? ((convertedData.length - unmappedRows.length) / convertedData.length) * 100 : 0,
+      mappedCoveragePct: rowsForAnalysis.length ? ((rowsForAnalysis.length - unmappedRows.length) / rowsForAnalysis.length) * 100 : 0,
+      period,
       generatedAt: new Date().toISOString()
     },
     convertedData,
@@ -436,7 +468,9 @@ export function buildExportWorkbook(conversion) {
       "Grupo": r.grupo,
       "Subgrupo": r.subgrupo,
       "Saldo MXN": r.displayMXN,
-      "Saldo EUR": r.displayEUR
+      "Saldo EUR": r.displayEUR,
+      "Linea sumatoria": r.isSummaryLine ? "Si" : "No",
+      "Excluida analisis": r.excludeFromAnalysis ? "Si" : "No"
     }))
   );
   XLSX.utils.book_append_sheet(wb, wsMapping, "Mapeo");
@@ -469,6 +503,14 @@ export function buildExportWorkbook(conversion) {
     {
       Control: "Cobertura mapeo (%)",
       Valor: conversion.metadata.mappedCoveragePct
+    },
+    {
+      Control: "Lineas analizadas",
+      Valor: conversion.metadata.analyzedRowCount
+    },
+    {
+      Control: "Lineas sumatorias excluidas",
+      Valor: conversion.metadata.summaryExcludedCount
     },
     {
       Control: "Sin mapeo",

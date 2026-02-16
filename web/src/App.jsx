@@ -49,6 +49,20 @@ const SUBGROUP_OPTIONS = [
 ];
 
 const NUMERIC_FIELDS = ["sid", "sia", "cargos", "abonos", "sfd", "sfa"];
+const MONTHS = [
+  { value: 1, label: "Enero" },
+  { value: 2, label: "Febrero" },
+  { value: 3, label: "Marzo" },
+  { value: 4, label: "Abril" },
+  { value: 5, label: "Mayo" },
+  { value: 6, label: "Junio" },
+  { value: 7, label: "Julio" },
+  { value: 8, label: "Agosto" },
+  { value: 9, label: "Septiembre" },
+  { value: 10, label: "Octubre" },
+  { value: 11, label: "Noviembre" },
+  { value: 12, label: "Diciembre" }
+];
 
 const fmt = (n) =>
   new Intl.NumberFormat("es-MX", {
@@ -69,6 +83,7 @@ const toDisplay = (value, showEur) => (showEur ? fmtEur(value) : fmt(value));
 const rowFromAny = (row, index = 0) => ({
   _rowId: String(row._rowId || row.rowId || row.id || `row-${index + 1}`),
   _isNew: Boolean(row._isNew),
+  _excludeFromAnalysis: Boolean(row._excludeFromAnalysis),
   code: String(row.code || ""),
   name: String(row.name || ""),
   sid: Number(row.sid || 0),
@@ -94,6 +109,7 @@ async function api(path, options = {}) {
 }
 
 export default function App() {
+  const now = new Date();
   const [tab, setTab] = useState("partidas");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -107,6 +123,13 @@ export default function App() {
   const [expanded, setExpanded] = useState("");
   const [mappingMeta, setMappingMeta] = useState(null);
   const [detailSearch, setDetailSearch] = useState("");
+  const [periodMonth, setPeriodMonth] = useState(() => Number(localStorage.getItem("pmex_period_month")) || now.getMonth() + 1);
+  const [periodYear, setPeriodYear] = useState(() => Number(localStorage.getItem("pmex_period_year")) || now.getFullYear());
+
+  useEffect(() => {
+    localStorage.setItem("pmex_period_month", String(periodMonth));
+    localStorage.setItem("pmex_period_year", String(periodYear));
+  }, [periodMonth, periodYear]);
 
   const runConversion = async (rows = sourceRows, mappings = manualMappings, rate = exchangeRate) => {
     setLoading(true);
@@ -115,7 +138,12 @@ export default function App() {
       const response = await api("/api/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows, manualMappings: mappings, exchangeRate: rate })
+        body: JSON.stringify({
+          rows,
+          manualMappings: mappings,
+          exchangeRate: rate,
+          period: { month: periodMonth, year: periodYear }
+        })
       });
       const payload = await response.json();
       setConversion(payload);
@@ -143,7 +171,11 @@ export default function App() {
         const convertRes = await api("/api/convert", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rows: normalizedRows, exchangeRate })
+          body: JSON.stringify({
+            rows: normalizedRows,
+            exchangeRate,
+            period: { month: periodMonth, year: periodYear }
+          })
         }).then((r) => r.json());
 
         setConversion(convertRes);
@@ -164,6 +196,8 @@ export default function App() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("exchangeRate", String(exchangeRate));
+    formData.append("month", String(periodMonth));
+    formData.append("year", String(periodYear));
 
     setLoading(true);
     setError("");
@@ -194,7 +228,12 @@ export default function App() {
       const response = await api("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: sourceRows, manualMappings, exchangeRate })
+        body: JSON.stringify({
+          rows: sourceRows,
+          manualMappings,
+          exchangeRate,
+          period: { month: periodMonth, year: periodYear }
+        })
       });
       const blob = await response.blob();
       const link = document.createElement("a");
@@ -328,6 +367,23 @@ export default function App() {
               }}
             />
           </div>
+          <div className="period-control">
+            <span>Periodo</span>
+            <select value={periodMonth} onChange={(e) => setPeriodMonth(Number(e.target.value))}>
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min="2000"
+              max="2100"
+              value={periodYear}
+              onChange={(e) => setPeriodYear(Number(e.target.value) || now.getFullYear())}
+            />
+          </div>
           <button type="button" className="btn subtle" onClick={() => setShowEur((s) => !s)}>
             {showEur ? "EUR" : "MXN"}
           </button>
@@ -373,6 +429,10 @@ export default function App() {
             <article className="card">
               <span className="label">Overrides manuales</span>
               <strong>{conversion.metadata.manualMappingCount || 0}</strong>
+            </article>
+            <article className="card">
+              <span className="label">Sumatorias excluidas</span>
+              <strong>{conversion.metadata.summaryExcludedCount || 0}</strong>
             </article>
           </section>
 
@@ -423,12 +483,13 @@ export default function App() {
                     {filteredRows.map((row) => {
                       const manual = manualMappings[row._rowId] || { pgc: "", pgcName: "", grupo: "Sin clasificar", subgrupo: "Sin clasificar" };
                       const converted = convertedByRowId.get(row._rowId);
+                      const isSummary = Boolean(converted?.isSummaryLine);
                       const isMapped = Boolean(converted && converted.pgcCode !== "SIN MAPEO");
                       const sumaDebe = Number(row.sid || 0) + Number(row.cargos || 0);
                       const sumaHaber = Number(row.sia || 0) + Number(row.abonos || 0);
                       const saldoNeto = Number(row.sfd || 0) - Number(row.sfa || 0);
                       return (
-                        <tr key={row._rowId} className={isMapped ? "mapped-row" : "unmapped-row"}>
+                        <tr key={row._rowId} className={isSummary ? "summary-row" : isMapped ? "mapped-row" : "unmapped-row"}>
                           <td><input value={row.code} onChange={(e) => updateRow(row._rowId, "code", e.target.value)} className="cell-input" /></td>
                           <td><input value={row.name} onChange={(e) => updateRow(row._rowId, "name", e.target.value)} className="cell-input" /></td>
                           <td className="right"><input value={row.sid} onChange={(e) => updateRow(row._rowId, "sid", e.target.value)} className="cell-input num" /></td>
@@ -441,8 +502,8 @@ export default function App() {
                           <td className="right"><input value={row.sfa} onChange={(e) => updateRow(row._rowId, "sfa", e.target.value)} className="cell-input num" /></td>
                           <td className="right">{fmt(saldoNeto)}</td>
                           <td>
-                            <span className={isMapped ? "badge badge-ok" : "badge badge-bad"}>
-                              {isMapped ? "Mapeada" : "Sin mapear"}
+                            <span className={isSummary ? "badge badge-warn" : isMapped ? "badge badge-ok" : "badge badge-bad"}>
+                              {isSummary ? "Sumatoria excluida" : isMapped ? "Mapeada" : "Sin mapear"}
                             </span>
                           </td>
                           <td>{converted?.pgcCode || "SIN MAPEO"}</td>
@@ -461,11 +522,7 @@ export default function App() {
                           </td>
                           <td className="right nowrap-actions">
                             <button className="mini-btn" type="button" onClick={() => clearManualMapping(row._rowId)}>Reset map</button>
-                            {row._isNew ? (
-                              <button className="mini-btn danger" type="button" onClick={() => removeRow(row._rowId)}>Eliminar</button>
-                            ) : (
-                              <span className="locked-delete">Base</span>
-                            )}
+                            <button className="mini-btn danger" type="button" onClick={() => removeRow(row._rowId)}>Eliminar</button>
                           </td>
                         </tr>
                       );
@@ -678,6 +735,7 @@ export default function App() {
           {mappingMeta && (
             <footer className="footer">
               <span>Mapeos cargados: {mappingMeta.totalMappings}</span>
+              <span>Periodo: {String(periodMonth).padStart(2, "0")}/{periodYear}</span>
               <span>Generado: {new Date(conversion.metadata.generatedAt).toLocaleString("es-ES")}</span>
             </footer>
           )}
