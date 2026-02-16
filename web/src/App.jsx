@@ -143,6 +143,8 @@ export default function App() {
   const [periodMonth, setPeriodMonth] = useState(() => Number(localStorage.getItem("pmex_period_month")) || now.getMonth() + 1);
   const [periodYear, setPeriodYear] = useState(() => Number(localStorage.getItem("pmex_period_year")) || now.getFullYear());
   const [periods, setPeriods] = useState([]);
+  const [showAllPeriods, setShowAllPeriods] = useState(false);
+  const [pendingDeletePeriodKey, setPendingDeletePeriodKey] = useState("");
   const [periodCheck, setPeriodCheck] = useState({
     exists: false,
     rowCount: 0,
@@ -209,6 +211,7 @@ export default function App() {
       setError(e.message);
     } finally {
       setLoading(false);
+      setPendingDeletePeriodKey("");
     }
   };
 
@@ -555,6 +558,11 @@ export default function App() {
     return { unmapped, analyzed, trialDiff, canSave };
   }, [conversion, sourceRows]);
 
+  const visiblePeriods = useMemo(() => {
+    if (showAllPeriods) return periods;
+    return periods.slice(0, 8);
+  }, [periods, showAllPeriods]);
+
   const balanceDrift = useMemo(() => {
     if (!conversion) return 0;
     return Math.abs(conversion.balanceSheet?.adjustedDifferenceMXN || conversion.balanceSheet?.differenceMXN || 0);
@@ -745,16 +753,39 @@ export default function App() {
               <h4>Periodos guardados</h4>
               <div className="period-list">
                 {periods.length === 0 && <span className="muted-inline">Sin periodos guardados.</span>}
-                {periods.map((p) => (
+                {periods.length > 0 && (
+                  <p className="muted-inline">Mostrando {visiblePeriods.length} de {periods.length}</p>
+                )}
+                {visiblePeriods.map((p) => (
                   <div key={p.period_key} className="period-item">
                     <button type="button" className="mini-btn period-load-btn" onClick={() => { setPeriodMonth(Number(p.month)); setPeriodYear(Number(p.year)); loadPeriod(Number(p.month), Number(p.year)); }}>
                       {String(p.month).padStart(2, "0")}/{p.year} · {p.row_count}
                     </button>
-                    <button type="button" className="mini-btn danger" onClick={() => deletePeriod(Number(p.month), Number(p.year))}>
-                      Eliminar
+                    <button
+                      type="button"
+                      className="mini-btn danger"
+                      onClick={() => {
+                        if (pendingDeletePeriodKey !== p.period_key) {
+                          setPendingDeletePeriodKey(p.period_key);
+                          return;
+                        }
+                        deletePeriod(Number(p.month), Number(p.year));
+                      }}
+                    >
+                      {pendingDeletePeriodKey === p.period_key ? "Confirmar borrado" : "Eliminar"}
                     </button>
+                    {pendingDeletePeriodKey === p.period_key && (
+                      <button type="button" className="mini-btn" onClick={() => setPendingDeletePeriodKey("")}>
+                        Cancelar
+                      </button>
+                    )}
                   </div>
                 ))}
+                {periods.length > 8 && (
+                  <button type="button" className="mini-btn period-toggle-btn" onClick={() => setShowAllPeriods((s) => !s)}>
+                    {showAllPeriods ? "Ver menos" : "Ver todos"}
+                  </button>
+                )}
               </div>
             </section>
             {mappingMeta && (

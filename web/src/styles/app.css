@@ -462,15 +462,18 @@ select {
 }
 
 .period-list {
-  display: flex;
+  display: grid;
   gap: 8px;
-  flex-wrap: wrap;
+  max-height: 240px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .period-item {
-  display: inline-flex;
+  display: flex;
   gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .period-load-btn {
@@ -480,6 +483,11 @@ select {
 .muted-inline {
   color: var(--muted);
   font-size: 13px;
+  margin: 0;
+}
+
+.period-toggle-btn {
+  justify-self: start;
 }
 
 .controls {
