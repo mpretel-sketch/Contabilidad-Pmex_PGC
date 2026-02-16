@@ -312,6 +312,7 @@ select {
   display: grid;
   gap: 16px;
   max-width: 100%;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -393,7 +394,8 @@ select {
 .cards {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: stretch;
 }
 
 .card {
@@ -402,6 +404,7 @@ select {
   border-radius: 12px;
   padding: 10px 12px;
   min-height: 84px;
+  overflow: hidden;
 }
 
 .card .label {
@@ -410,6 +413,9 @@ select {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .card strong {
@@ -417,6 +423,8 @@ select {
   margin-top: 6px;
   font-size: 18px;
   letter-spacing: -0.01em;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .ok {
@@ -495,22 +503,26 @@ select {
 .table-wrap {
   margin-top: 12px;
   overflow: auto;
-  max-height: 65vh;
+  height: clamp(360px, 58vh, 760px);
+  max-height: none;
   max-width: 100%;
   background: #fff;
   border-radius: 12px;
   border: 1px solid var(--line);
   overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+  touch-action: pan-x pan-y;
 }
 
 .table-scroll-top {
   margin-top: 8px;
   overflow-x: auto;
   overflow-y: hidden;
-  height: 14px;
+  height: 16px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #f7fbff;
+  scrollbar-gutter: stable both-edges;
 }
 
 .table-scroll-inner {
@@ -858,7 +870,7 @@ tr:hover {
   }
 
   .cards {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .footer {
@@ -870,5 +882,11 @@ tr:hover {
     position: static;
     background: transparent;
     backdrop-filter: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .cards {
+    grid-template-columns: 1fr;
   }
 }
