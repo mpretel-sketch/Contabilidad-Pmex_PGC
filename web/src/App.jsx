@@ -93,7 +93,11 @@ const parseNum = (value) => {
 };
 
 async function api(path, options = {}) {
-  const baseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+  const fallbackProdApi = "https://back-contabilidad-pmex-pgc.onrender.com";
+  const configuredBase = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? fallbackProdApi : "");
+  const baseUrl = String(configuredBase || "")
+    .replace(/\/api\/?$/, "")
+    .replace(/\/$/, "");
   const safePath = path.startsWith("/") ? path : `/${path}`;
   const response = await fetch(`${baseUrl}${safePath}`, options);
   if (!response.ok) {
@@ -193,12 +197,13 @@ export default function App() {
       const payload = await safeJson(response);
       hydrateState(payload);
     } catch (e) {
-      if (String(e.message || "").includes("No existe informacion")) {
+      const msg = String(e.message || "");
+      if (msg.includes("No existe informacion") || msg.includes("Error API (404)")) {
         setConversion(null);
         setSourceRows([]);
         setManualMappings({});
       } else {
-        setError(e.message);
+        setError(msg);
       }
     } finally {
       setLoading(false);
