@@ -6,3 +6,7 @@ web/dist/
 *.log
 /tmp/
 server/data/*.db
+python_app/__pycache__/
+python_app/*.pyc
+python_app/data/*.db
+exports/*.xlsx
