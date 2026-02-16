@@ -317,6 +317,25 @@ export function convertRows(rows, exchangeRate = 0.046, manualMappings = {}, per
     balanceGroups["Patrimonio Neto"].totalEUR +
     balanceGroups["Pasivo No Corriente"].totalEUR +
     balanceGroups["Pasivo Corriente"].totalEUR;
+  const differenceMXN = totalActivoMXN - totalPasivoPNMXN;
+  const differenceEUR = totalActivoEUR - totalPasivoPNEUR;
+
+  let adjustedTotalPasivoPNMXN = totalPasivoPNMXN;
+  let adjustedTotalPasivoPNEUR = totalPasivoPNEUR;
+  let autoResultLine = null;
+  if (Math.abs(differenceMXN) > 0.01) {
+    autoResultLine = {
+      pgcCode: "129",
+      pgcName: "Resultado del periodo pendiente de cierre",
+      grupo: "Patrimonio Neto",
+      subgrupo: "Fondos propios",
+      totalMXN: differenceMXN,
+      totalEUR: differenceEUR,
+      details: []
+    };
+    adjustedTotalPasivoPNMXN += differenceMXN;
+    adjustedTotalPasivoPNEUR += differenceEUR;
+  }
 
   const pnlSections = structuredClone(PNL_SECTIONS);
   for (const row of pgcAggregated) {
@@ -380,8 +399,13 @@ export function convertRows(rows, exchangeRate = 0.046, manualMappings = {}, per
       totalPasivoPNMXN,
       totalActivoEUR,
       totalPasivoPNEUR,
-      differenceMXN: totalActivoMXN - totalPasivoPNMXN,
-      differenceEUR: totalActivoEUR - totalPasivoPNEUR
+      differenceMXN,
+      differenceEUR,
+      autoResultLine,
+      adjustedTotalPasivoPNMXN,
+      adjustedTotalPasivoPNEUR,
+      adjustedDifferenceMXN: totalActivoMXN - adjustedTotalPasivoPNMXN,
+      adjustedDifferenceEUR: totalActivoEUR - adjustedTotalPasivoPNEUR
     },
     pnl: {
       sections: pnlSections,

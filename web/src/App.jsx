@@ -369,10 +369,16 @@ export default function App() {
     const unmapped = conversion?.metadata?.unmappedCount || 0;
     const analyzed = conversion?.metadata?.analyzedRowCount || 0;
     const trialDiff = Math.abs(conversion?.validations?.trialBalanceFinalDifference || 0);
-    const balanceDiff = Math.abs(conversion?.balanceSheet?.differenceMXN || 0);
-    const canSave = conversion && sourceRows.length > 0 && analyzed > 0 && unmapped === 0 && trialDiff <= 0.01 && balanceDiff <= 0.01;
-    return { unmapped, analyzed, trialDiff, balanceDiff, canSave };
+    const canSave = conversion && sourceRows.length > 0 && analyzed > 0 && unmapped === 0 && trialDiff <= 0.01;
+    return { unmapped, analyzed, trialDiff, canSave };
   }, [conversion, sourceRows]);
+
+  const balanceRightWithAdjustment = useMemo(() => {
+    if (!conversion) return 0;
+    return showEur
+      ? conversion.balanceSheet.adjustedTotalPasivoPNEUR
+      : conversion.balanceSheet.adjustedTotalPasivoPNMXN;
+  }, [conversion, showEur]);
 
   return (
     <div className="app-shell">
@@ -433,7 +439,7 @@ export default function App() {
             <p>Sin mapear: <strong>{checks.unmapped}</strong></p>
             <p>Dif. balanza final: <strong>{fmt(conversion.validations.trialBalanceFinalDifference)}</strong></p>
             <p>Dif. balance PGC: <strong>{fmt(conversion.balanceSheet.differenceMXN)}</strong></p>
-            <p><strong>{checks.canSave ? "Listo para guardar en BBDD" : "No se puede guardar hasta corregir mapeo/cuadre"}</strong></p>
+            <p><strong>{checks.canSave ? "Listo para guardar en BBDD" : "No se puede guardar hasta dejar sin mapear=0 y balanza final cuadrada"}</strong></p>
           </section>
         )}
 
@@ -567,6 +573,13 @@ export default function App() {
                 </div>
               ))}
               <p className="grand-total"><span>Total PN + Pasivo</span><span>{toDisplay(showEur ? conversion.balanceSheet.totalPasivoPNEUR : conversion.balanceSheet.totalPasivoPNMXN, showEur)}</span></p>
+              {conversion.balanceSheet.autoResultLine && (
+                <p className="grand-total">
+                  <span>129 Resultado del periodo (ajuste tecnico)</span>
+                  <span>{toDisplay(showEur ? conversion.balanceSheet.autoResultLine.totalEUR : conversion.balanceSheet.autoResultLine.totalMXN, showEur)}</span>
+                </p>
+              )}
+              <p className="grand-total"><span>Total PN + Pasivo (ajustado)</span><span>{toDisplay(balanceRightWithAdjustment, showEur)}</span></p>
             </article>
           </section>
         )}

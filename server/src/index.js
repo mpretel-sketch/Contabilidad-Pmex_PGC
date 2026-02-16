@@ -87,17 +87,15 @@ app.post("/api/periods/save", (req, res) => {
     const hasUnmapped = conversion.metadata.unmappedCount > 0;
     const hasAnalyzedRows = conversion.metadata.analyzedRowCount > 0;
     const trialDiff = Math.abs(conversion.validations.trialBalanceFinalDifference);
-    const balanceDiff = Math.abs(conversion.balanceSheet.differenceMXN);
-    const canPersist = hasAnalyzedRows && !hasUnmapped && trialDiff <= 0.01 && balanceDiff <= 0.01;
+    const canPersist = hasAnalyzedRows && !hasUnmapped && trialDiff <= 0.01;
 
     if (!canPersist) {
       return res.status(400).json({
-        error: "No se puede guardar: hay partidas sin mapear o descuadre en la informacion.",
+        error: "No se puede guardar: hay partidas sin mapear o descuadre en balanza final.",
         validations: {
           analyzedRowCount: conversion.metadata.analyzedRowCount,
           unmappedCount: conversion.metadata.unmappedCount,
-          trialBalanceFinalDifference: conversion.validations.trialBalanceFinalDifference,
-          balanceDifferenceMXN: conversion.balanceSheet.differenceMXN
+          trialBalanceFinalDifference: conversion.validations.trialBalanceFinalDifference
         }
       });
     }
