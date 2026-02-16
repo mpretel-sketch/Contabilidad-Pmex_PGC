@@ -10,11 +10,18 @@ import {
   normalizeRows,
   parseWorkbookBuffer
 } from "./conversionEngine.js";
-import { listPeriods, loadPeriodData, savePeriodData } from "./db.js";
+import {
+  deletePeriodData,
+  listPeriods,
+  loadPeriodData,
+  loadYearPeriodsUntilMonth,
+  savePeriodData
+} from "./db.js";
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 4000;
+const pad2 = (value) => String(value).padStart(2, "0");
 
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
@@ -40,6 +47,175 @@ app.get("/api/periods", (_req, res) => {
   res.json({ periods });
 });
 
+function getPreviousPeriod(month, year) {
+  if (month === 1) return { month: 12, year: year - 1 };
+  return { month: month - 1, year };
+}
+
+function differenceRowsByPreviousMonth(currentRows, previousRows) {
+  const prevByCode = new Map(previousRows.map((row) => [String(row.code || "").trim(), row]));
+  const currentCodes = new Set(currentRows.map((row) => String(row.code || "").trim()));
+  const numericFields = ["sid", "sia", "cargos", "abonos", "sfd", "sfa"];
+
+  const subtract = (a, b) => Number(a || 0) - Number(b || 0);
+  const hasAnyAmount = (row) => numericFields.some((field) => Math.abs(Number(row[field] || 0)) > 1e-9);
+
+  const diffRows = currentRows.map((current, index) => {
+    const code = String(current.code || "").trim();
+    const previous = prevByCode.get(code) || {};
+    const next = {
+      _rowId: current._rowId || `row-${index + 1}`,
+      _isNew: Boolean(current._isNew),
+      _excludeFromAnalysis: Boolean(current._excludeFromAnalysis),
+      code,
+      name: current.name || previous.name || ""
+    };
+    for (const field of numericFields) {
+      next[field] = subtract(current[field], previous[field]);
+    }
+    return next;
+  });
+
+  for (const previous of previousRows) {
+    const code = String(previous.code || "").trim();
+    if (!code || currentCodes.has(code)) continue;
+    const prevOnly = {
+      _rowId: `prev-${code}`,
+      _isNew: false,
+      _excludeFromAnalysis: false,
+      code,
+      name: previous.name || "",
+      sid: -Number(previous.sid || 0),
+      sia: -Number(previous.sia || 0),
+      cargos: -Number(previous.cargos || 0),
+      abonos: -Number(previous.abonos || 0),
+      sfd: -Number(previous.sfd || 0),
+      sfa: -Number(previous.sfa || 0)
+    };
+    if (hasAnyAmount(prevOnly)) diffRows.push(prevOnly);
+  }
+
+  return diffRows;
+}
+
+function aggregateRowsByCode(rows) {
+  const map = new Map();
+  const numericFields = ["sid", "sia", "cargos", "abonos", "sfd", "sfa"];
+
+  for (const row of rows) {
+    const code = String(row.code || "").trim();
+    if (!code) continue;
+    if (!map.has(code)) {
+      map.set(code, {
+        _rowId: `ytd-${code}`,
+        _isNew: false,
+        _excludeFromAnalysis: false,
+        code,
+        name: row.name || "",
+        sid: 0,
+        sia: 0,
+        cargos: 0,
+        abonos: 0,
+        sfd: 0,
+        sfa: 0
+      });
+    }
+    const target = map.get(code);
+    if (row.name) target.name = row.name;
+    for (const field of numericFields) {
+      target[field] += Number(row[field] || 0);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function collectManualMappingsByCode(rows, manualMappings = {}) {
+  const out = new Map();
+  for (const row of rows) {
+    const code = String(row?.code || "").trim();
+    if (!code) continue;
+    const manual = manualMappings[row._rowId];
+    if (!manual || typeof manual !== "object") continue;
+    const hasData = Boolean(manual.pgc || manual.pgcName || manual.grupo || manual.subgrupo);
+    if (!hasData) continue;
+    out.set(code, {
+      pgc: manual.pgc || "",
+      pgcName: manual.pgcName || "",
+      grupo: manual.grupo || "Sin clasificar",
+      subgrupo: manual.subgrupo || "Sin clasificar"
+    });
+  }
+  return out;
+}
+
+function buildYtdConversion({
+  year,
+  month,
+  exchangeRate,
+  currentRows = [],
+  currentManualMappings = {},
+  excludeCurrentPeriodInDb = false
+}) {
+  const currentPeriodKey = `${year}-${pad2(month)}`;
+  const savedPayloads = loadYearPeriodsUntilMonth({
+    year,
+    month,
+    excludePeriodKey: excludeCurrentPeriodInDb ? currentPeriodKey : null
+  });
+
+  const ytdSourceRows = [];
+  const ytdMappingsByCode = new Map();
+  for (const payload of savedPayloads) {
+    ytdSourceRows.push(...payload.rows);
+    const payloadMap = collectManualMappingsByCode(payload.rows, payload.manualMappings);
+    for (const [code, mapping] of payloadMap.entries()) ytdMappingsByCode.set(code, mapping);
+  }
+  ytdSourceRows.push(...currentRows);
+  const currentMap = collectManualMappingsByCode(currentRows, currentManualMappings);
+  for (const [code, mapping] of currentMap.entries()) ytdMappingsByCode.set(code, mapping);
+
+  const ytdRows = aggregateRowsByCode(ytdSourceRows);
+  const ytdManualMappings = {};
+  for (const row of ytdRows) {
+    const code = String(row.code || "").trim();
+    if (!code) continue;
+    const mapping = ytdMappingsByCode.get(code);
+    if (mapping) ytdManualMappings[row._rowId] = mapping;
+  }
+
+  const ytdConversion = convertRows(ytdRows, exchangeRate, ytdManualMappings, { month, year, scope: "YTD" });
+  return { ytdRows, ytdConversion };
+}
+
+function buildPnlWorkbook(conversion) {
+  const wb = XLSX.utils.book_new();
+  const rows = [];
+
+  rows.push({ Concepto: "CUENTA DE PERDIDAS Y GANANCIAS (PGC ESPANOL)", Importe_MXN: "" });
+  rows.push({ Concepto: "", Importe_MXN: "" });
+
+  for (const [sectionName, section] of Object.entries(conversion.pnl.sections || {})) {
+    rows.push({ Concepto: sectionName, Importe_MXN: "" });
+    for (const item of section.items || []) {
+      rows.push({
+        Concepto: `${item.pgcCode} ${item.pgcName}`,
+        Importe_MXN: Number(item.totalMXN || 0)
+      });
+    }
+    rows.push({ Concepto: `Subtotal ${sectionName}`, Importe_MXN: Number(section.totalMXN || 0) });
+    rows.push({ Concepto: "", Importe_MXN: "" });
+  }
+
+  rows.push({ Concepto: "RESULTADO DE EXPLOTACION", Importe_MXN: Number(conversion.pnl.resultadoExplotacionMx || 0) });
+  rows.push({ Concepto: "RESULTADO FINANCIERO", Importe_MXN: Number(conversion.pnl.resultadoFinancieroMx || 0) });
+  rows.push({ Concepto: "OTROS RESULTADOS", Importe_MXN: Number(conversion.pnl.otrosResultadosMx || 0) });
+  rows.push({ Concepto: "RESULTADO ANTES DE IMPUESTOS", Importe_MXN: Number(conversion.pnl.resultadoAntesImpuestosMx || 0) });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, "PyG_ESP");
+  return wb;
+}
+
 app.get("/api/periods/:year/:month", (req, res) => {
   const year = Number(req.params.year);
   const month = Number(req.params.month);
@@ -54,13 +230,39 @@ app.get("/api/periods/:year/:month", (req, res) => {
     payload.manualMappings,
     { month, year }
   );
+  const { ytdConversion } = buildYtdConversion({
+    year,
+    month,
+    exchangeRate: payload.period.exchangeRate || 0.046,
+    currentRows: [],
+    currentManualMappings: {},
+    excludeCurrentPeriodInDb: false
+  });
 
   return res.json({
     ...conversion,
+    ytdConversion,
     sourceRows: payload.rows,
     manualMappings: payload.manualMappings,
     storage: payload.period
   });
+});
+
+app.delete("/api/periods/:year/:month", (req, res) => {
+  try {
+    const year = Number(req.params.year);
+    const month = Number(req.params.month);
+    if (!year || !month) {
+      return res.status(400).json({ error: "Debes indicar mes y anio validos." });
+    }
+    const deleted = deletePeriodData({ year, month });
+    if (!deleted) {
+      return res.status(404).json({ error: "No existe el periodo a eliminar." });
+    }
+    return res.json({ ok: true, deleted: true, period: { year, month } });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "No se pudo eliminar el periodo." });
+  }
 });
 
 app.post("/api/periods/save", (req, res) => {
@@ -108,8 +310,17 @@ app.post("/api/periods/save", (req, res) => {
       exchangeRate: Number(exchangeRate) || 0.046,
       filename: period.filename || "manual-save"
     });
+    const { ytdConversion } = buildYtdConversion({
+      year,
+      month,
+      exchangeRate: Number(exchangeRate) || 0.046,
+      currentRows: normalized.rows,
+      currentManualMappings: manualMappings,
+      excludeCurrentPeriodInDb: true
+    });
     return res.json({
       ...conversion,
+      ytdConversion,
       sourceRows: normalized.rows,
       manualMappings,
       storage: { year, month, exchangeRate: Number(exchangeRate) || 0.046 }
@@ -133,13 +344,35 @@ app.post("/api/periods/upload", upload.single("file"), (req, res) => {
 
     const exchangeRate = Number(req.body.exchangeRate) || 0.046;
     const rows = parseWorkbookBuffer(req.file.buffer);
+    const previousPeriod = getPreviousPeriod(month, year);
+    const previousPayload = loadPeriodData(previousPeriod);
+    const rowsForPeriod = previousPayload
+      ? differenceRowsByPreviousMonth(rows, previousPayload.rows)
+      : rows;
 
-    const conversion = convertRows(rows, exchangeRate, {}, { month, year });
+    const conversion = convertRows(rowsForPeriod, exchangeRate, {}, { month, year });
+    const { ytdConversion } = buildYtdConversion({
+      year,
+      month,
+      exchangeRate,
+      currentRows: rowsForPeriod,
+      currentManualMappings: {},
+      excludeCurrentPeriodInDb: true
+    });
     return res.json({
       ...conversion,
-      sourceRows: rows,
+      ytdConversion,
+      sourceRows: rowsForPeriod,
       manualMappings: {},
-      storage: { year, month, exchangeRate, filename: req.file.originalname, persisted: false }
+      storage: {
+        year,
+        month,
+        exchangeRate,
+        filename: req.file.originalname,
+        persisted: false,
+        differenceApplied: Boolean(previousPayload),
+        basePeriod: previousPayload ? previousPeriod : null
+      }
     });
   } catch (error) {
     return res.status(400).json({ error: error.message || "No se pudo leer o guardar el archivo." });
@@ -154,8 +387,21 @@ app.post("/api/convert", (req, res) => {
     }
 
     const normalized = normalizeRows(rows);
+    const year = Number(period?.year);
+    const month = Number(period?.month);
     const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings, period);
-    return res.json(conversion);
+    const ytdConversion =
+      year && month
+        ? buildYtdConversion({
+            year,
+            month,
+            exchangeRate: Number(exchangeRate) || 0.046,
+            currentRows: normalized.rows,
+            currentManualMappings: manualMappings,
+            excludeCurrentPeriodInDb: true
+          }).ytdConversion
+        : null;
+    return res.json({ ...conversion, ytdConversion });
   } catch (error) {
     return res.status(500).json({ error: error.message || "No se pudo convertir la informacion." });
   }
@@ -183,6 +429,31 @@ app.post("/api/export", (req, res) => {
     return res.send(outputBuffer);
   } catch (error) {
     return res.status(500).json({ error: error.message || "No se pudo generar el archivo Excel." });
+  }
+});
+
+app.post("/api/export-pnl", (req, res) => {
+  try {
+    const { rows = [], exchangeRate = 0.046, manualMappings = {}, period = null } = req.body || {};
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: "Debes enviar filas contables en 'rows'." });
+    }
+
+    const normalized = normalizeRows(rows);
+    const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings, period);
+    const workbook = buildPnlWorkbook(conversion);
+    const outputBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+    const periodLabel =
+      period?.month && period?.year
+        ? `${String(period.year)}-${String(period.month).padStart(2, "0")}`
+        : new Date().toISOString().slice(0, 10);
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=pnl_esp_${periodLabel}.xlsx`);
+    return res.send(outputBuffer);
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "No se pudo generar el archivo PyG." });
   }
 });
 

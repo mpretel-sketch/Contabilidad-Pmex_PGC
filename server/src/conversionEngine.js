@@ -209,6 +209,18 @@ const accountDisplayValue = (group, saldo) => {
   return saldo;
 };
 
+const pnlSignedFromAggregate = (row) => {
+  if (row.grupo === "Ingresos" || row.grupo === "Ingresos Financieros") return row.totalMXN;
+  if (row.grupo === "Gastos" || row.grupo === "Gastos Financieros") return -row.totalMXN;
+  return 0;
+};
+
+const pnlSignedFromAggregateEur = (row) => {
+  if (row.grupo === "Ingresos" || row.grupo === "Ingresos Financieros") return row.totalEUR;
+  if (row.grupo === "Gastos" || row.grupo === "Gastos Financieros") return -row.totalEUR;
+  return 0;
+};
+
 const normalizeManualMapping = (manual) => {
   if (!manual || typeof manual !== "object") return null;
   const pgc = parseString(manual.pgc || manual.pgcCode);
@@ -339,35 +351,59 @@ export function convertRows(rows, exchangeRate = 0.046, manualMappings = {}, per
 
   const pnlSections = structuredClone(PNL_SECTIONS);
   for (const row of pgcAggregated) {
-    if (!pnlSections[row.subgrupo]) continue;
-    pnlSections[row.subgrupo].items.push(row);
-    pnlSections[row.subgrupo].totalMXN += row.totalMXN;
-    pnlSections[row.subgrupo].totalEUR += row.totalEUR;
+    const sectionKey = row.subgrupo === "Gastos financieros" ? "Resultado financiero" : row.subgrupo;
+    if (!pnlSections[sectionKey]) continue;
+    const signedMXN = pnlSignedFromAggregate(row);
+    const signedEUR = pnlSignedFromAggregateEur(row);
+    pnlSections[sectionKey].items.push({
+      ...row,
+      subgrupo: sectionKey,
+      totalMXN: signedMXN,
+      totalEUR: signedEUR
+    });
+    pnlSections[sectionKey].totalMXN += signedMXN;
+    pnlSections[sectionKey].totalEUR += signedEUR;
   }
 
   const ingresosMx = pnlSections["Importe neto cifra negocios"].totalMXN + pnlSections["Otros ingresos de explotacion"].totalMXN;
-  const gastosMx =
+  const gastosMx = -(
+    pnlSections["Gastos de personal"].totalMXN +
+    pnlSections["Servicios exteriores"].totalMXN +
+    pnlSections["Tributos"].totalMXN +
+    pnlSections["Amortizaciones"].totalMXN +
+    pnlSections["Gastos excepcionales"].totalMXN
+  );
+  const resultadoFinancieroMx = pnlSections["Resultado financiero"].totalMXN;
+  const otrosResultadosMx = pnlSections["Otros resultados"].totalMXN;
+
+  const resultadoExplotacionMx =
+    pnlSections["Importe neto cifra negocios"].totalMXN +
+    pnlSections["Otros ingresos de explotacion"].totalMXN +
     pnlSections["Gastos de personal"].totalMXN +
     pnlSections["Servicios exteriores"].totalMXN +
     pnlSections["Tributos"].totalMXN +
     pnlSections["Amortizaciones"].totalMXN +
     pnlSections["Gastos excepcionales"].totalMXN;
-  const resultadoFinancieroMx = pnlSections["Resultado financiero"].totalMXN;
-  const otrosResultadosMx = pnlSections["Otros resultados"].totalMXN;
-
-  const resultadoExplotacionMx = ingresosMx - gastosMx;
   const resultadoAntesImpuestosMx = resultadoExplotacionMx + resultadoFinancieroMx + otrosResultadosMx;
 
   const ingresosEur = pnlSections["Importe neto cifra negocios"].totalEUR + pnlSections["Otros ingresos de explotacion"].totalEUR;
-  const gastosEur =
+  const gastosEur = -(
+    pnlSections["Gastos de personal"].totalEUR +
+    pnlSections["Servicios exteriores"].totalEUR +
+    pnlSections["Tributos"].totalEUR +
+    pnlSections["Amortizaciones"].totalEUR +
+    pnlSections["Gastos excepcionales"].totalEUR
+  );
+  const resultadoFinancieroEur = pnlSections["Resultado financiero"].totalEUR;
+  const otrosResultadosEur = pnlSections["Otros resultados"].totalEUR;
+  const resultadoExplotacionEur =
+    pnlSections["Importe neto cifra negocios"].totalEUR +
+    pnlSections["Otros ingresos de explotacion"].totalEUR +
     pnlSections["Gastos de personal"].totalEUR +
     pnlSections["Servicios exteriores"].totalEUR +
     pnlSections["Tributos"].totalEUR +
     pnlSections["Amortizaciones"].totalEUR +
     pnlSections["Gastos excepcionales"].totalEUR;
-  const resultadoFinancieroEur = pnlSections["Resultado financiero"].totalEUR;
-  const otrosResultadosEur = pnlSections["Otros resultados"].totalEUR;
-  const resultadoExplotacionEur = ingresosEur - gastosEur;
   const resultadoAntesImpuestosEur = resultadoExplotacionEur + resultadoFinancieroEur + otrosResultadosEur;
 
   const unmappedRows = rowsForAnalysis.filter((item) => item.pgcCode === "SIN MAPEO");

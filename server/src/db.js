@@ -196,3 +196,45 @@ export function loadPeriodData({ year, month }) {
     manualMappings
   };
 }
+
+export function deletePeriodData({ year, month }) {
+  const periodKey = buildPeriodKey(year, month);
+  const periodExistsStmt = db.prepare(`SELECT period_key FROM periods WHERE period_key = ?`);
+  const found = periodExistsStmt.get(periodKey);
+  if (!found) return false;
+
+  const deleteRows = db.prepare(`DELETE FROM period_rows WHERE period_key = ?`);
+  const deleteMappings = db.prepare(`DELETE FROM period_manual_mappings WHERE period_key = ?`);
+  const deletePeriod = db.prepare(`DELETE FROM periods WHERE period_key = ?`);
+
+  try {
+    db.exec("BEGIN");
+    deleteRows.run(periodKey);
+    deleteMappings.run(periodKey);
+    deletePeriod.run(periodKey);
+    db.exec("COMMIT");
+    return true;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function loadYearPeriodsUntilMonth({ year, month, excludePeriodKey = null }) {
+  const stmt = db.prepare(`
+    SELECT year, month
+    FROM periods
+    WHERE year = ? AND month <= ?
+    ORDER BY month ASC
+  `);
+
+  const rows = stmt.all(Number(year), Number(month));
+  const out = [];
+  for (const row of rows) {
+    const periodKey = buildPeriodKey(row.year, row.month);
+    if (excludePeriodKey && periodKey === excludePeriodKey) continue;
+    const payload = loadPeriodData({ year: row.year, month: row.month });
+    if (payload) out.push(payload);
+  }
+  return out;
+}
