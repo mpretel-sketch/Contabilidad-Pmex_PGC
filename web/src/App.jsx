@@ -537,7 +537,7 @@ export default function App() {
         <div className="ops-group">
           <span className="ops-label">Carga</span>
           <label className="file-input">
-            Subir y sobrescribir
+            Subir archivo
             <input type="file" accept=".xlsx,.xls,.csv" onChange={onUpload} />
           </label>
         </div>
