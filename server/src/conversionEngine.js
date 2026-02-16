@@ -228,12 +228,64 @@ const normalizeManualMapping = (manual) => {
   const grupo = parseString(manual.grupo);
   const subgrupo = parseString(manual.subgrupo);
   if (!pgc && !pgcName && !grupo && !subgrupo) return null;
+  const inferredGroup = inferGroupFromPgc(pgc);
+  const normalizedGroup = normalizeGroup(grupo);
+  const finalGroup = normalizedGroup === "Sin clasificar" ? inferredGroup : normalizedGroup;
   return {
     pgc: pgc || "SIN MAPEO",
     pgcName: pgcName || "Sin equivalencia PGC",
-    grupo: grupo || "Sin clasificar",
+    grupo: finalGroup || "Sin clasificar",
     subgrupo: subgrupo || "Sin clasificar"
   };
+};
+
+const normalizeGroup = (groupValue) => {
+  const raw = String(groupValue || "").trim();
+  if (!raw) return "Sin clasificar";
+  const normalized = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const aliases = {
+    "activo corriente": "Activo Corriente",
+    "activo no corriente": "Activo No Corriente",
+    "pasivo corriente": "Pasivo Corriente",
+    "pasivo no corriente": "Pasivo No Corriente",
+    "patrimonio neto": "Patrimonio Neto",
+    ingresos: "Ingresos",
+    "ingresos financieros": "Ingresos Financieros",
+    gastos: "Gastos",
+    "gastos financieros": "Gastos Financieros",
+    "sin clasificar": "Sin clasificar"
+  };
+  return aliases[normalized] || raw;
+};
+
+const inferGroupFromPgc = (pgcCode) => {
+  const code = String(pgcCode || "").replace(/\D/g, "");
+  if (!code) return "Sin clasificar";
+
+  if (/^(10|11|12|13)/.test(code)) return "Patrimonio Neto";
+  if (/^(14|15|16|17|18)/.test(code)) return "Pasivo No Corriente";
+  if (/^2/.test(code)) return "Activo No Corriente";
+  if (/^3/.test(code)) return "Activo Corriente";
+
+  // Grupo 4 mixto (deudor/acreedor): afinamos por subseries tipicas.
+  if (/^(40|41|438|439|47[5-9])/.test(code)) return "Pasivo Corriente";
+  if (/^(43|44|46|47[0-4])/.test(code)) return "Activo Corriente";
+
+  // Grupo 5 mixto: 50-52 y 51x deudas CP; 57 tesoreria activo corriente.
+  if (/^(50|51|52|56|59)/.test(code)) return "Pasivo Corriente";
+  if (/^(53|54|55|57|58)/.test(code)) return "Activo Corriente";
+
+  if (/^6/.test(code)) return "Gastos";
+  if (/^7/.test(code)) return "Ingresos";
+  if (/^8/.test(code)) return "Gastos";
+  if (/^9/.test(code)) return "Ingresos";
+
+  return "Sin clasificar";
 };
 
 const detectSummaryLine = (row, allRows) => {
