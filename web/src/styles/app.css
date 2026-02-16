@@ -79,6 +79,17 @@ body {
   gap: 6px;
 }
 
+.period-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.muted-inline {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .rate-control input,
 .period-control select,
 .period-control input,

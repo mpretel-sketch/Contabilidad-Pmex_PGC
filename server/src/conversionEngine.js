@@ -168,6 +168,7 @@ export function normalizeRows(rawRows) {
       return {
         _rowId: parseString(row._rowId || row.rowId || row.id) || `row-${index + 1}`,
         _isNew: Boolean(row._isNew),
+        _excludeFromAnalysis: Boolean(row._excludeFromAnalysis),
         code: String(transformed.code).trim(),
         name: String(transformed.name ?? "Sin descripcion").trim(),
         sid: parseNumber(transformed.sid),
@@ -433,10 +434,12 @@ export function parseWorkbookBuffer(buffer) {
     for (let i = start; i < matrixRows.length; i += 1) {
       const row = matrixRows[i] || [];
       const code = String(row[0] ?? "").trim();
-      if (!code || !code.includes("-")) continue;
+      if (!code || !/[0-9]/.test(code)) continue;
 
       rows.push({
         _rowId: `row-${rows.length + 1}`,
+        _isNew: false,
+        _excludeFromAnalysis: false,
         code,
         name: String(row[1] ?? "").trim() || "Sin descripcion",
         sid: parseNumber(row[2]),

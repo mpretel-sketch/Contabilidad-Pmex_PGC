@@ -48,7 +48,6 @@ const SUBGROUP_OPTIONS = [
   "Otros resultados"
 ];
 
-const NUMERIC_FIELDS = ["sid", "sia", "cargos", "abonos", "sfd", "sfa"];
 const MONTHS = [
   { value: 1, label: "Enero" },
   { value: 2, label: "Febrero" },
@@ -64,19 +63,13 @@ const MONTHS = [
   { value: 12, label: "Diciembre" }
 ];
 
+const NUMERIC_FIELDS = ["sid", "sia", "cargos", "abonos", "sfd", "sfa"];
+
 const fmt = (n) =>
-  new Intl.NumberFormat("es-MX", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(n || 0);
+  new Intl.NumberFormat("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 
 const fmtEur = (n) =>
-  new Intl.NumberFormat("es-ES", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(n || 0);
+  new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 
 const toDisplay = (value, showEur) => (showEur ? fmtEur(value) : fmt(value));
 
@@ -125,30 +118,46 @@ export default function App() {
   const [detailSearch, setDetailSearch] = useState("");
   const [periodMonth, setPeriodMonth] = useState(() => Number(localStorage.getItem("pmex_period_month")) || now.getMonth() + 1);
   const [periodYear, setPeriodYear] = useState(() => Number(localStorage.getItem("pmex_period_year")) || now.getFullYear());
+  const [periods, setPeriods] = useState([]);
 
   useEffect(() => {
     localStorage.setItem("pmex_period_month", String(periodMonth));
     localStorage.setItem("pmex_period_year", String(periodYear));
   }, [periodMonth, periodYear]);
 
-  const runConversion = async (rows = sourceRows, mappings = manualMappings, rate = exchangeRate) => {
+  const refreshPeriods = async () => {
+    const response = await api("/api/periods");
+    const payload = await response.json();
+    setPeriods(payload.periods || []);
+  };
+
+  const hydrateState = (payload) => {
+    const rows = (payload.sourceRows || payload.convertedData || []).map(rowFromAny);
+    setSourceRows(rows);
+    setManualMappings(payload.manualMappings || {});
+    setExchangeRate(Number(payload.metadata?.exchangeRate || payload.storage?.exchangeRate || 0.046));
+    setConversion(payload);
+    setExpanded("");
+    setSearch("");
+    setDetailSearch("");
+    setGroupFilter("Todos");
+  };
+
+  const loadPeriod = async (month = periodMonth, year = periodYear) => {
     setLoading(true);
     setError("");
     try {
-      const response = await api("/api/convert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rows,
-          manualMappings: mappings,
-          exchangeRate: rate,
-          period: { month: periodMonth, year: periodYear }
-        })
-      });
+      const response = await api(`/api/periods/${year}/${month}`);
       const payload = await response.json();
-      setConversion(payload);
+      hydrateState(payload);
     } catch (e) {
-      setError(e.message);
+      if (String(e.message || "").includes("No existe informacion")) {
+        setConversion(null);
+        setSourceRows([]);
+        setManualMappings({});
+      } else {
+        setError(e.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -159,26 +168,10 @@ export default function App() {
       setLoading(true);
       setError("");
       try {
-        const [sampleRes, metaRes] = await Promise.all([
-          api("/api/sample").then((r) => r.json()),
-          api("/api/mapping/meta").then((r) => r.json())
-        ]);
-
-        const normalizedRows = sampleRes.rows.map(rowFromAny);
-        setSourceRows(normalizedRows);
+        const [metaRes] = await Promise.all([api("/api/mapping/meta").then((r) => r.json())]);
         setMappingMeta(metaRes);
-
-        const convertRes = await api("/api/convert", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            rows: normalizedRows,
-            exchangeRate,
-            period: { month: periodMonth, year: periodYear }
-          })
-        }).then((r) => r.json());
-
-        setConversion(convertRes);
+        await refreshPeriods();
+        await loadPeriod(periodMonth, periodYear);
       } catch (e) {
         setError(e.message);
       } finally {
@@ -188,6 +181,34 @@ export default function App() {
 
     bootstrap();
   }, []);
+
+  const savePeriod = async () => {
+    if (!sourceRows.length) {
+      setError("No hay lineas para guardar.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api("/api/periods/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows: sourceRows,
+          manualMappings,
+          exchangeRate,
+          period: { month: periodMonth, year: periodYear }
+        })
+      });
+      const payload = await response.json();
+      hydrateState(payload);
+      await refreshPeriods();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const onUpload = async (event) => {
     const file = event.target.files?.[0];
@@ -202,16 +223,10 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      const response = await api("/api/convert/upload", { method: "POST", body: formData });
+      const response = await api("/api/periods/upload", { method: "POST", body: formData });
       const payload = await response.json();
-      const normalizedRows = payload.convertedData.map(rowFromAny);
-      setSourceRows(normalizedRows);
-      setManualMappings({});
-      setConversion(payload);
-      setExpanded("");
-      setSearch("");
-      setDetailSearch("");
-      setGroupFilter("Todos");
+      hydrateState(payload);
+      await refreshPeriods();
       setTab("partidas");
     } catch (e) {
       setError(e.message);
@@ -238,7 +253,7 @@ export default function App() {
       const blob = await response.blob();
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = "conversion_nif_a_pgc.xlsx";
+      link.download = `conversion_nif_a_pgc_${periodYear}-${String(periodMonth).padStart(2, "0")}.xlsx`;
       link.click();
       URL.revokeObjectURL(link.href);
     } catch (e) {
@@ -274,6 +289,7 @@ export default function App() {
       {
         _rowId: rowId,
         _isNew: true,
+        _excludeFromAnalysis: false,
         code: "",
         name: "",
         sid: 0,
@@ -290,8 +306,7 @@ export default function App() {
   const updateManualMapping = (rowId, field, value) => {
     setManualMappings((prev) => {
       const base = prev[rowId] || { pgc: "", pgcName: "", grupo: "Sin clasificar", subgrupo: "Sin clasificar" };
-      const next = { ...prev, [rowId]: { ...base, [field]: value } };
-      return next;
+      return { ...prev, [rowId]: { ...base, [field]: value } };
     });
   };
 
@@ -315,7 +330,6 @@ export default function App() {
     return conversion.pgcAggregated.filter((item) => {
       if (groupFilter !== "Todos" && item.grupo !== groupFilter) return false;
       if (!query) return true;
-
       const inHeader = item.pgcCode.toLowerCase().includes(query) || item.pgcName.toLowerCase().includes(query);
       const inDetails = item.details.some((d) => d.code.toLowerCase().includes(query) || d.name.toLowerCase().includes(query));
       return inHeader || inDetails;
@@ -330,9 +344,7 @@ export default function App() {
 
   const convertedByRowId = useMemo(() => {
     const map = new Map();
-    (conversion?.convertedData || []).forEach((row) => {
-      map.set(row._rowId, row);
-    });
+    (conversion?.convertedData || []).forEach((row) => map.set(row._rowId, row));
     return map;
   }, [conversion]);
 
@@ -347,49 +359,30 @@ export default function App() {
       <header className="topbar">
         <div>
           <h1>NIF Mexico a PGC Espana</h1>
-          <p>Edicion manual de partidas + detalle maximo por linea</p>
+          <p>Carga mensual en BBDD, sobreescritura por periodo y detalle completo</p>
         </div>
         <div className="header-actions">
-          <label className="file-input">
-            Cargar archivo
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={onUpload} />
-          </label>
-          <div className="rate-control">
-            <span>TC MXN/EUR</span>
-            <input
-              type="number"
-              step="0.001"
-              value={exchangeRate}
-              onChange={(e) => {
-                const val = Number.parseFloat(e.target.value);
-                const finalRate = Number.isFinite(val) && val > 0 ? val : 0.046;
-                setExchangeRate(finalRate);
-              }}
-            />
-          </div>
           <div className="period-control">
             <span>Periodo</span>
             <select value={periodMonth} onChange={(e) => setPeriodMonth(Number(e.target.value))}>
               {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
+                <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
-            <input
-              type="number"
-              min="2000"
-              max="2100"
-              value={periodYear}
-              onChange={(e) => setPeriodYear(Number(e.target.value) || now.getFullYear())}
-            />
+            <input type="number" min="2000" max="2100" value={periodYear} onChange={(e) => setPeriodYear(Number(e.target.value) || now.getFullYear())} />
+            <button type="button" className="btn subtle" onClick={() => loadPeriod(periodMonth, periodYear)}>Cargar periodo</button>
           </div>
-          <button type="button" className="btn subtle" onClick={() => setShowEur((s) => !s)}>
-            {showEur ? "EUR" : "MXN"}
-          </button>
-          <button type="button" className="btn" onClick={onExport}>
-            Exportar XLSX
-          </button>
+          <label className="file-input">
+            Subir y sobrescribir periodo
+            <input type="file" accept=".xlsx,.xls,.csv" onChange={onUpload} />
+          </label>
+          <div className="rate-control">
+            <span>TC MXN/EUR</span>
+            <input type="number" step="0.001" value={exchangeRate} onChange={(e) => setExchangeRate(Number.parseFloat(e.target.value) || 0.046)} />
+          </div>
+          <button type="button" className="btn subtle" onClick={() => setShowEur((s) => !s)}>{showEur ? "EUR" : "MXN"}</button>
+          <button type="button" className="btn" onClick={savePeriod}>Guardar periodo</button>
+          <button type="button" className="btn" onClick={onExport}>Exportar XLSX</button>
         </div>
       </header>
 
@@ -398,349 +391,179 @@ export default function App() {
 
       <nav className="tabs">
         {TABS.map((item) => (
-          <button
-            type="button"
-            key={item.key}
-            className={tab === item.key ? "tab active" : "tab"}
-            onClick={() => setTab(item.key)}
-          >
+          <button type="button" key={item.key} className={tab === item.key ? "tab active" : "tab"} onClick={() => setTab(item.key)}>
             {item.label}
           </button>
         ))}
       </nav>
 
-      {conversion && (
-        <main className="content">
-          <section className="cards">
-            <article className="card">
-              <span className="label">Partidas origen</span>
-              <strong>{conversion.metadata.rowCount}</strong>
-            </article>
-            <article className="card">
-              <span className="label">Cuentas PGC</span>
-              <strong>{conversion.pgcAggregated.length}</strong>
-            </article>
-            <article className="card">
-              <span className="label">Cobertura mapeo</span>
-              <strong className={coverageClass(conversion.metadata.mappedCoveragePct)}>
-                {fmt(conversion.metadata.mappedCoveragePct)}%
-              </strong>
-            </article>
-            <article className="card">
-              <span className="label">Overrides manuales</span>
-              <strong>{conversion.metadata.manualMappingCount || 0}</strong>
-            </article>
-            <article className="card">
-              <span className="label">Sumatorias excluidas</span>
-              <strong>{conversion.metadata.summaryExcludedCount || 0}</strong>
-            </article>
-          </section>
+      <main className="content">
+        <section className="cards">
+          <article className="card"><span className="label">Lineas archivo</span><strong>{conversion?.metadata?.rowCount || sourceRows.length}</strong></article>
+          <article className="card"><span className="label">Lineas analizadas</span><strong>{conversion?.metadata?.analyzedRowCount || 0}</strong></article>
+          <article className="card"><span className="label">Sumatorias excluidas</span><strong>{conversion?.metadata?.summaryExcludedCount || 0}</strong></article>
+          <article className="card"><span className="label">Cobertura mapeo</span><strong className={coverageClass(conversion?.metadata?.mappedCoveragePct || 0)}>{fmt(conversion?.metadata?.mappedCoveragePct || 0)}%</strong></article>
+        </section>
 
-          {tab === "partidas" && (
-            <section>
-              <div className="partidas-toolbar">
-                <button type="button" className="btn subtle" onClick={addRow}>
-                  Anadir partida
-                </button>
-                <button type="button" className="btn" onClick={() => runConversion()}>
-                  Recalcular
-                </button>
-              </div>
-              <div className="controls">
-                <input
-                  type="text"
-                  placeholder="Buscar partida por cuenta o descripcion"
-                  value={detailSearch}
-                  onChange={(e) => setDetailSearch(e.target.value)}
-                />
-              </div>
-              <div className="table-wrap">
-                <table className="detail-table">
-                  <thead>
-                    <tr>
-                      <th>Cuenta MX</th>
-                      <th>Descripcion</th>
-                      <th className="right">SID</th>
-                      <th className="right">SIA</th>
-                      <th className="right">Cargos</th>
-                      <th className="right">Abonos</th>
-                      <th className="right">Suma Debe</th>
-                      <th className="right">Suma Haber</th>
-                      <th className="right">SFD</th>
-                      <th className="right">SFA</th>
-                      <th className="right">Saldo Neto</th>
-                      <th>Estado</th>
-                      <th>PGC asignado</th>
-                      <th>Nombre asignado</th>
-                      <th>PGC</th>
-                      <th>Nombre PGC</th>
-                      <th>Grupo</th>
-                      <th>Subgrupo</th>
-                      <th className="right">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRows.map((row) => {
-                      const manual = manualMappings[row._rowId] || { pgc: "", pgcName: "", grupo: "Sin clasificar", subgrupo: "Sin clasificar" };
-                      const converted = convertedByRowId.get(row._rowId);
-                      const isSummary = Boolean(converted?.isSummaryLine);
-                      const isMapped = Boolean(converted && converted.pgcCode !== "SIN MAPEO");
-                      const sumaDebe = Number(row.sid || 0) + Number(row.cargos || 0);
-                      const sumaHaber = Number(row.sia || 0) + Number(row.abonos || 0);
-                      const saldoNeto = Number(row.sfd || 0) - Number(row.sfa || 0);
-                      return (
-                        <tr key={row._rowId} className={isSummary ? "summary-row" : isMapped ? "mapped-row" : "unmapped-row"}>
-                          <td><input value={row.code} onChange={(e) => updateRow(row._rowId, "code", e.target.value)} className="cell-input" /></td>
-                          <td><input value={row.name} onChange={(e) => updateRow(row._rowId, "name", e.target.value)} className="cell-input" /></td>
-                          <td className="right"><input value={row.sid} onChange={(e) => updateRow(row._rowId, "sid", e.target.value)} className="cell-input num" /></td>
-                          <td className="right"><input value={row.sia} onChange={(e) => updateRow(row._rowId, "sia", e.target.value)} className="cell-input num" /></td>
-                          <td className="right"><input value={row.cargos} onChange={(e) => updateRow(row._rowId, "cargos", e.target.value)} className="cell-input num" /></td>
-                          <td className="right"><input value={row.abonos} onChange={(e) => updateRow(row._rowId, "abonos", e.target.value)} className="cell-input num" /></td>
-                          <td className="right">{fmt(sumaDebe)}</td>
-                          <td className="right">{fmt(sumaHaber)}</td>
-                          <td className="right"><input value={row.sfd} onChange={(e) => updateRow(row._rowId, "sfd", e.target.value)} className="cell-input num" /></td>
-                          <td className="right"><input value={row.sfa} onChange={(e) => updateRow(row._rowId, "sfa", e.target.value)} className="cell-input num" /></td>
-                          <td className="right">{fmt(saldoNeto)}</td>
-                          <td>
-                            <span className={isSummary ? "badge badge-warn" : isMapped ? "badge badge-ok" : "badge badge-bad"}>
-                              {isSummary ? "Sumatoria excluida" : isMapped ? "Mapeada" : "Sin mapear"}
-                            </span>
-                          </td>
-                          <td>{converted?.pgcCode || "SIN MAPEO"}</td>
-                          <td>{converted?.pgcName || "Sin equivalencia PGC"}</td>
-                          <td><input value={manual.pgc} onChange={(e) => updateManualMapping(row._rowId, "pgc", e.target.value)} className="cell-input" placeholder="opcional" /></td>
-                          <td><input value={manual.pgcName} onChange={(e) => updateManualMapping(row._rowId, "pgcName", e.target.value)} className="cell-input" placeholder="opcional" /></td>
-                          <td>
-                            <select value={manual.grupo} onChange={(e) => updateManualMapping(row._rowId, "grupo", e.target.value)} className="cell-select">
-                              {GROUP_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                            </select>
-                          </td>
-                          <td>
-                            <select value={manual.subgrupo} onChange={(e) => updateManualMapping(row._rowId, "subgrupo", e.target.value)} className="cell-select">
-                              {SUBGROUP_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                            </select>
-                          </td>
-                          <td className="right nowrap-actions">
-                            <button className="mini-btn" type="button" onClick={() => clearManualMapping(row._rowId)}>Reset map</button>
-                            <button className="mini-btn danger" type="button" onClick={() => removeRow(row._rowId)}>Eliminar</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+        <section className="panel">
+          <h3>Periodos guardados</h3>
+          <div className="period-list">
+            {periods.length === 0 && <span className="muted-inline">Sin periodos guardados todavia.</span>}
+            {periods.map((p) => (
+              <button key={p.period_key} type="button" className="mini-btn" onClick={() => { setPeriodMonth(Number(p.month)); setPeriodYear(Number(p.year)); loadPeriod(Number(p.month), Number(p.year)); }}>
+                {String(p.month).padStart(2, "0")}/{p.year} · {p.row_count} lineas
+              </button>
+            ))}
+          </div>
+        </section>
 
-          {tab === "mapping" && (
-            <section>
-              <div className="controls">
-                <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
-                  {groups.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  placeholder="Buscar por cuenta o nombre"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>PGC</th>
-                      <th>Nombre</th>
-                      <th>Grupo</th>
-                      <th className="right">Total</th>
-                      <th className="right">Detalle</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((row) => (
-                      <Fragment key={row.pgcCode}>
-                        <tr onClick={() => setExpanded(expanded === row.pgcCode ? "" : row.pgcCode)}>
-                          <td>{row.pgcCode}</td>
-                          <td>{row.pgcName}</td>
-                          <td>{row.grupo}</td>
-                          <td className="right">{toDisplay(showEur ? row.totalEUR : row.totalMXN, showEur)}</td>
-                          <td className="right">{row.details.length}</td>
-                        </tr>
-                        {expanded === row.pgcCode &&
-                          row.details.map((detail) => (
-                            <tr className="child" key={`${row.pgcCode}-${detail._rowId}`}>
-                              <td>{detail.code}</td>
-                              <td>{detail.name}</td>
-                              <td>{detail.subgrupo}</td>
-                              <td className="right">{toDisplay(showEur ? detail.displayEUR : detail.displayMXN, showEur)}</td>
-                              <td className="right">
-                                SID {fmt(detail.sid)} | SIA {fmt(detail.sia)} | C {fmt(detail.cargos)} | A {fmt(detail.abonos)} | SFD {fmt(detail.sfd)} | SFA {fmt(detail.sfa)}
-                              </td>
-                            </tr>
-                          ))}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
-          {tab === "balance" && (
-            <section className="grid-2">
-              <article className="panel">
-                <h3>Activo</h3>
-                {["Activo No Corriente", "Activo Corriente"].map((group) => (
-                  <div key={group} className="block">
-                    <h4>{group}</h4>
-                    {conversion.balanceSheet.groups[group].items.map((item) => (
-                      <p key={`${group}-${item.pgcCode}`}>
-                        <span>{item.pgcCode} {item.pgcName}</span>
-                        <span>{toDisplay(showEur ? item.totalEUR : item.totalMXN, showEur)}</span>
-                      </p>
-                    ))}
-                    <p className="total">
-                      <span>Total {group}</span>
-                      <span>
-                        {toDisplay(
-                          showEur
-                            ? conversion.balanceSheet.groups[group].totalEUR
-                            : conversion.balanceSheet.groups[group].totalMXN,
-                          showEur
-                        )}
-                      </span>
-                    </p>
-                  </div>
-                ))}
-                <p className="grand-total">
-                  <span>Total Activo</span>
-                  <span>{toDisplay(showEur ? conversion.balanceSheet.totalActivoEUR : conversion.balanceSheet.totalActivoMXN, showEur)}</span>
-                </p>
-              </article>
-
-              <article className="panel">
-                <h3>Patrimonio neto y pasivo</h3>
-                {["Patrimonio Neto", "Pasivo No Corriente", "Pasivo Corriente"].map((group) => (
-                  <div key={group} className="block">
-                    <h4>{group}</h4>
-                    {conversion.balanceSheet.groups[group].items.map((item) => (
-                      <p key={`${group}-${item.pgcCode}`}>
-                        <span>{item.pgcCode} {item.pgcName}</span>
-                        <span>{toDisplay(showEur ? item.totalEUR : item.totalMXN, showEur)}</span>
-                      </p>
-                    ))}
-                    <p className="total">
-                      <span>Total {group}</span>
-                      <span>
-                        {toDisplay(
-                          showEur
-                            ? conversion.balanceSheet.groups[group].totalEUR
-                            : conversion.balanceSheet.groups[group].totalMXN,
-                          showEur
-                        )}
-                      </span>
-                    </p>
-                  </div>
-                ))}
-                <p className="grand-total">
-                  <span>Total PN + Pasivo</span>
-                  <span>{toDisplay(showEur ? conversion.balanceSheet.totalPasivoPNEUR : conversion.balanceSheet.totalPasivoPNMXN, showEur)}</span>
-                </p>
-              </article>
-            </section>
-          )}
-
-          {tab === "pnl" && (
-            <section className="panel">
-              <h3>Cuenta de Perdidas y Ganancias</h3>
-              {Object.entries(conversion.pnl.sections).map(([section, content]) => (
-                <div className="block" key={section}>
-                  <h4>{section}</h4>
-                  {content.items.map((item) => (
-                    <p key={`${section}-${item.pgcCode}`}>
-                      <span>{item.pgcCode} {item.pgcName}</span>
-                      <span>{toDisplay(showEur ? item.totalEUR : item.totalMXN, showEur)}</span>
-                    </p>
-                  ))}
-                  <p className="total">
-                    <span>Subtotal</span>
-                    <span>{toDisplay(showEur ? content.totalEUR : content.totalMXN, showEur)}</span>
-                  </p>
-                </div>
-              ))}
-              <div className="result-grid">
-                <p>
-                  <span>Resultado de explotacion</span>
-                  <span>{toDisplay(showEur ? conversion.pnl.resultadoExplotacionEur : conversion.pnl.resultadoExplotacionMx, showEur)}</span>
-                </p>
-                <p>
-                  <span>Resultado financiero</span>
-                  <span>{toDisplay(showEur ? conversion.pnl.resultadoFinancieroEur : conversion.pnl.resultadoFinancieroMx, showEur)}</span>
-                </p>
-                <p className="highlight">
-                  <span>Resultado antes de impuestos</span>
-                  <span>{toDisplay(showEur ? conversion.pnl.resultadoAntesImpuestosEur : conversion.pnl.resultadoAntesImpuestosMx, showEur)}</span>
-                </p>
-              </div>
-            </section>
-          )}
-
-          {tab === "control" && (
-            <section className="panel">
-              <h3>Controles de calidad y normativa</h3>
-              <p>
-                Diferencia balanza inicial: <strong>{fmt(conversion.validations.trialBalanceInitialDifference)}</strong>
-              </p>
-              <p>
-                Diferencia balanza final: <strong>{fmt(conversion.validations.trialBalanceFinalDifference)}</strong>
-              </p>
-              <p>
-                Diferencia balance PGC: <strong>{fmt(conversion.balanceSheet.differenceMXN)}</strong>
-              </p>
-              <p>
-                Cuentas sin mapeo: <strong>{conversion.metadata.unmappedCount}</strong>
-              </p>
-
-              {conversion.validations.unmappedRows.length > 0 && (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Cuenta</th>
-                        <th>Nombre</th>
-                        <th className="right">Saldo</th>
+        {conversion && tab === "partidas" && (
+          <section>
+            <div className="partidas-toolbar">
+              <button type="button" className="btn subtle" onClick={addRow}>Anadir partida</button>
+              <button type="button" className="btn" onClick={savePeriod}>Guardar y recalcular</button>
+            </div>
+            <div className="controls">
+              <input type="text" placeholder="Buscar partida por cuenta o descripcion" value={detailSearch} onChange={(e) => setDetailSearch(e.target.value)} />
+            </div>
+            <div className="table-wrap">
+              <table className="detail-table">
+                <thead>
+                  <tr>
+                    <th>Cuenta MX</th><th>Descripcion</th><th className="right">SID</th><th className="right">SIA</th><th className="right">Cargos</th><th className="right">Abonos</th>
+                    <th className="right">Suma Debe</th><th className="right">Suma Haber</th><th className="right">SFD</th><th className="right">SFA</th><th className="right">Saldo Neto</th>
+                    <th>Estado</th><th>PGC asignado</th><th>Nombre asignado</th><th>PGC</th><th>Nombre PGC</th><th>Grupo</th><th>Subgrupo</th><th className="right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRows.map((row) => {
+                    const manual = manualMappings[row._rowId] || { pgc: "", pgcName: "", grupo: "Sin clasificar", subgrupo: "Sin clasificar" };
+                    const converted = convertedByRowId.get(row._rowId);
+                    const isSummary = Boolean(converted?.isSummaryLine);
+                    const isMapped = Boolean(converted && converted.pgcCode !== "SIN MAPEO");
+                    const sumaDebe = Number(row.sid || 0) + Number(row.cargos || 0);
+                    const sumaHaber = Number(row.sia || 0) + Number(row.abonos || 0);
+                    const saldoNeto = Number(row.sfd || 0) - Number(row.sfa || 0);
+                    return (
+                      <tr key={row._rowId} className={isSummary ? "summary-row" : isMapped ? "mapped-row" : "unmapped-row"}>
+                        <td><input value={row.code} onChange={(e) => updateRow(row._rowId, "code", e.target.value)} className="cell-input" /></td>
+                        <td><input value={row.name} onChange={(e) => updateRow(row._rowId, "name", e.target.value)} className="cell-input" /></td>
+                        <td className="right"><input value={row.sid} onChange={(e) => updateRow(row._rowId, "sid", e.target.value)} className="cell-input num" /></td>
+                        <td className="right"><input value={row.sia} onChange={(e) => updateRow(row._rowId, "sia", e.target.value)} className="cell-input num" /></td>
+                        <td className="right"><input value={row.cargos} onChange={(e) => updateRow(row._rowId, "cargos", e.target.value)} className="cell-input num" /></td>
+                        <td className="right"><input value={row.abonos} onChange={(e) => updateRow(row._rowId, "abonos", e.target.value)} className="cell-input num" /></td>
+                        <td className="right">{fmt(sumaDebe)}</td>
+                        <td className="right">{fmt(sumaHaber)}</td>
+                        <td className="right"><input value={row.sfd} onChange={(e) => updateRow(row._rowId, "sfd", e.target.value)} className="cell-input num" /></td>
+                        <td className="right"><input value={row.sfa} onChange={(e) => updateRow(row._rowId, "sfa", e.target.value)} className="cell-input num" /></td>
+                        <td className="right">{fmt(saldoNeto)}</td>
+                        <td><span className={isSummary ? "badge badge-warn" : isMapped ? "badge badge-ok" : "badge badge-bad"}>{isSummary ? "Sumatoria excluida" : isMapped ? "Mapeada" : "Sin mapear"}</span></td>
+                        <td>{converted?.pgcCode || "SIN MAPEO"}</td>
+                        <td>{converted?.pgcName || "Sin equivalencia PGC"}</td>
+                        <td><input value={manual.pgc} onChange={(e) => updateManualMapping(row._rowId, "pgc", e.target.value)} className="cell-input" /></td>
+                        <td><input value={manual.pgcName} onChange={(e) => updateManualMapping(row._rowId, "pgcName", e.target.value)} className="cell-input" /></td>
+                        <td><select value={manual.grupo} onChange={(e) => updateManualMapping(row._rowId, "grupo", e.target.value)} className="cell-select">{GROUP_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}</select></td>
+                        <td><select value={manual.subgrupo} onChange={(e) => updateManualMapping(row._rowId, "subgrupo", e.target.value)} className="cell-select">{SUBGROUP_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}</select></td>
+                        <td className="right nowrap-actions">
+                          <button className="mini-btn" type="button" onClick={() => clearManualMapping(row._rowId)}>Reset map</button>
+                          <button className="mini-btn danger" type="button" onClick={() => removeRow(row._rowId)}>Eliminar</button>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {conversion.validations.unmappedRows.map((row) => (
-                        <tr key={row._rowId}>
-                          <td>{row.code}</td>
-                          <td>{row.name}</td>
-                          <td className="right">{fmt(row.saldo)}</td>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {conversion && tab === "mapping" && (
+          <section>
+            <div className="controls">
+              <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>{groups.map((g) => <option key={g} value={g}>{g}</option>)}</select>
+              <input type="text" placeholder="Buscar por cuenta o nombre" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>PGC</th><th>Nombre</th><th>Grupo</th><th className="right">Total</th><th className="right">Detalle</th></tr></thead>
+                <tbody>
+                  {filtered.map((row) => (
+                    <Fragment key={row.pgcCode}>
+                      <tr onClick={() => setExpanded(expanded === row.pgcCode ? "" : row.pgcCode)}>
+                        <td>{row.pgcCode}</td><td>{row.pgcName}</td><td>{row.grupo}</td><td className="right">{toDisplay(showEur ? row.totalEUR : row.totalMXN, showEur)}</td><td className="right">{row.details.length}</td>
+                      </tr>
+                      {expanded === row.pgcCode && row.details.map((detail) => (
+                        <tr className="child" key={`${row.pgcCode}-${detail._rowId}`}>
+                          <td>{detail.code}</td><td>{detail.name}</td><td>{detail.subgrupo}</td><td className="right">{toDisplay(showEur ? detail.displayEUR : detail.displayMXN, showEur)}</td>
+                          <td className="right">SID {fmt(detail.sid)} | SIA {fmt(detail.sia)} | C {fmt(detail.cargos)} | A {fmt(detail.abonos)} | SFD {fmt(detail.sfd)} | SFA {fmt(detail.sfa)}</td>
                         </tr>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
-          {mappingMeta && (
-            <footer className="footer">
-              <span>Mapeos cargados: {mappingMeta.totalMappings}</span>
-              <span>Periodo: {String(periodMonth).padStart(2, "0")}/{periodYear}</span>
-              <span>Generado: {new Date(conversion.metadata.generatedAt).toLocaleString("es-ES")}</span>
-            </footer>
-          )}
-        </main>
-      )}
+        {conversion && tab === "balance" && (
+          <section className="grid-2">
+            <article className="panel">
+              <h3>Activo</h3>
+              {["Activo No Corriente", "Activo Corriente"].map((group) => (
+                <div key={group} className="block">
+                  <h4>{group}</h4>
+                  {conversion.balanceSheet.groups[group].items.map((item) => <p key={`${group}-${item.pgcCode}`}><span>{item.pgcCode} {item.pgcName}</span><span>{toDisplay(showEur ? item.totalEUR : item.totalMXN, showEur)}</span></p>)}
+                  <p className="total"><span>Total {group}</span><span>{toDisplay(showEur ? conversion.balanceSheet.groups[group].totalEUR : conversion.balanceSheet.groups[group].totalMXN, showEur)}</span></p>
+                </div>
+              ))}
+              <p className="grand-total"><span>Total Activo</span><span>{toDisplay(showEur ? conversion.balanceSheet.totalActivoEUR : conversion.balanceSheet.totalActivoMXN, showEur)}</span></p>
+            </article>
+            <article className="panel">
+              <h3>Patrimonio neto y pasivo</h3>
+              {["Patrimonio Neto", "Pasivo No Corriente", "Pasivo Corriente"].map((group) => (
+                <div key={group} className="block">
+                  <h4>{group}</h4>
+                  {conversion.balanceSheet.groups[group].items.map((item) => <p key={`${group}-${item.pgcCode}`}><span>{item.pgcCode} {item.pgcName}</span><span>{toDisplay(showEur ? item.totalEUR : item.totalMXN, showEur)}</span></p>)}
+                  <p className="total"><span>Total {group}</span><span>{toDisplay(showEur ? conversion.balanceSheet.groups[group].totalEUR : conversion.balanceSheet.groups[group].totalMXN, showEur)}</span></p>
+                </div>
+              ))}
+              <p className="grand-total"><span>Total PN + Pasivo</span><span>{toDisplay(showEur ? conversion.balanceSheet.totalPasivoPNEUR : conversion.balanceSheet.totalPasivoPNMXN, showEur)}</span></p>
+            </article>
+          </section>
+        )}
+
+        {conversion && tab === "pnl" && (
+          <section className="panel">
+            <h3>Cuenta de Perdidas y Ganancias</h3>
+            {Object.entries(conversion.pnl.sections).map(([section, content]) => (
+              <div className="block" key={section}>
+                <h4>{section}</h4>
+                {content.items.map((item) => <p key={`${section}-${item.pgcCode}`}><span>{item.pgcCode} {item.pgcName}</span><span>{toDisplay(showEur ? item.totalEUR : item.totalMXN, showEur)}</span></p>)}
+                <p className="total"><span>Subtotal</span><span>{toDisplay(showEur ? content.totalEUR : content.totalMXN, showEur)}</span></p>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {conversion && tab === "control" && (
+          <section className="panel">
+            <h3>Controles de calidad</h3>
+            <p>Diferencia balanza inicial: <strong>{fmt(conversion.validations.trialBalanceInitialDifference)}</strong></p>
+            <p>Diferencia balanza final: <strong>{fmt(conversion.validations.trialBalanceFinalDifference)}</strong></p>
+            <p>Diferencia balance PGC: <strong>{fmt(conversion.balanceSheet.differenceMXN)}</strong></p>
+            <p>Cuentas sin mapeo (lineas analizadas): <strong>{conversion.metadata.unmappedCount}</strong></p>
+          </section>
+        )}
+
+        {mappingMeta && conversion && (
+          <footer className="footer">
+            <span>Mapeos cargados: {mappingMeta.totalMappings}</span>
+            <span>Periodo: {String(periodMonth).padStart(2, "0")}/{periodYear}</span>
+            <span>Generado: {new Date(conversion.metadata.generatedAt).toLocaleString("es-ES")}</span>
+          </footer>
+        )}
+      </main>
     </div>
   );
 }
