@@ -97,10 +97,26 @@ async function api(path, options = {}) {
   const safePath = path.startsWith("/") ? path : `/${path}`;
   const response = await fetch(`${baseUrl}${safePath}`, options);
   if (!response.ok) {
-    const maybeJson = await response.json().catch(() => ({}));
-    throw new Error(maybeJson.error || "Error en la peticion");
+    const raw = await response.text().catch(() => "");
+    let parsed = null;
+    try {
+      parsed = raw ? JSON.parse(raw) : null;
+    } catch {
+      parsed = null;
+    }
+    throw new Error(parsed?.error || `Error API (${response.status})`);
   }
   return response;
+}
+
+async function safeJson(response) {
+  const raw = await response.text().catch(() => "");
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("La API devolvio una respuesta no JSON");
+  }
 }
 
 export default function App() {
@@ -135,7 +151,7 @@ export default function App() {
 
   const refreshPeriods = async () => {
     const response = await api("/api/periods");
-    const payload = await response.json();
+    const payload = await safeJson(response);
     setPeriods(payload.periods || []);
   };
 
@@ -174,7 +190,7 @@ export default function App() {
     setError("");
     try {
       const response = await api(`/api/periods/${year}/${month}`);
-      const payload = await response.json();
+      const payload = await safeJson(response);
       hydrateState(payload);
     } catch (e) {
       if (String(e.message || "").includes("No existe informacion")) {
@@ -194,7 +210,7 @@ export default function App() {
       setLoading(true);
       setError("");
       try {
-        const [metaRes] = await Promise.all([api("/api/mapping/meta").then((r) => r.json())]);
+        const [metaRes] = await Promise.all([api("/api/mapping/meta").then((r) => safeJson(r))]);
         setMappingMeta(metaRes);
         await refreshPeriods();
       } catch (e) {
@@ -225,7 +241,7 @@ export default function App() {
           period: { month: periodMonth, year: periodYear }
         })
       });
-      const payload = await response.json();
+      const payload = await safeJson(response);
       hydrateState(payload);
       await refreshPeriods();
     } catch (e) {
@@ -249,7 +265,7 @@ export default function App() {
     setError("");
     try {
       const response = await api("/api/periods/upload", { method: "POST", body: formData });
-      const payload = await response.json();
+      const payload = await safeJson(response);
       hydrateState(payload);
       await refreshPeriods();
       setTab("partidas");
@@ -331,7 +347,7 @@ export default function App() {
           period: { month: periodMonth, year: periodYear }
         })
       });
-      const payload = await response.json();
+      const payload = await safeJson(response);
       setConversion(payload);
     } catch (e) {
       setError(e.message);
