@@ -47,6 +47,32 @@ app.get("/api/periods", (_req, res) => {
   res.json({ periods });
 });
 
+app.get("/api/periods/check/:year/:month", (req, res) => {
+  const year = Number(req.params.year);
+  const month = Number(req.params.month);
+  if (!year || !month) {
+    return res.status(400).json({ error: "Debes indicar mes y anio validos." });
+  }
+  const payload = loadPeriodData({ year, month });
+  if (!payload) {
+    return res.json({
+      exists: false,
+      period: { year, month },
+      rowCount: 0,
+      mappingCount: 0,
+      uploadedAt: null
+    });
+  }
+  return res.json({
+    exists: true,
+    period: { year, month },
+    rowCount: payload.rows.length,
+    mappingCount: Object.keys(payload.manualMappings || {}).length,
+    uploadedAt: payload.period?.uploadedAt || null,
+    filename: payload.period?.filename || null
+  });
+});
+
 function getPreviousPeriod(month, year) {
   if (month === 1) return { month: 12, year: year - 1 };
   return { month: month - 1, year };

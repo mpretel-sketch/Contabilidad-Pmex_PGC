@@ -143,6 +143,13 @@ export default function App() {
   const [periodMonth, setPeriodMonth] = useState(() => Number(localStorage.getItem("pmex_period_month")) || now.getMonth() + 1);
   const [periodYear, setPeriodYear] = useState(() => Number(localStorage.getItem("pmex_period_year")) || now.getFullYear());
   const [periods, setPeriods] = useState([]);
+  const [periodCheck, setPeriodCheck] = useState({
+    exists: false,
+    rowCount: 0,
+    mappingCount: 0,
+    uploadedAt: null,
+    filename: null
+  });
   const [viewScope, setViewScope] = useState("month");
   const detailTableRef = useRef(null);
   const detailTopScrollRef = useRef(null);
@@ -164,12 +171,35 @@ export default function App() {
     setPeriods(payload.periods || []);
   };
 
+  const checkPeriodStorage = async (month = periodMonth, year = periodYear) => {
+    try {
+      const response = await api(`/api/periods/check/${year}/${month}`);
+      const payload = await safeJson(response);
+      setPeriodCheck({
+        exists: Boolean(payload.exists),
+        rowCount: Number(payload.rowCount || 0),
+        mappingCount: Number(payload.mappingCount || 0),
+        uploadedAt: payload.uploadedAt || null,
+        filename: payload.filename || null
+      });
+    } catch {
+      setPeriodCheck({
+        exists: false,
+        rowCount: 0,
+        mappingCount: 0,
+        uploadedAt: null,
+        filename: null
+      });
+    }
+  };
+
   const deletePeriod = async (month, year) => {
     setLoading(true);
     setError("");
     try {
       await api(`/api/periods/${year}/${month}`, { method: "DELETE" });
       await refreshPeriods();
+      await checkPeriodStorage(periodMonth, periodYear);
       if (Number(periodMonth) === Number(month) && Number(periodYear) === Number(year)) {
         setConversion(null);
         setSourceRows([]);
@@ -201,6 +231,7 @@ export default function App() {
       const response = await api(`/api/periods/${year}/${month}`);
       const payload = await safeJson(response);
       hydrateState(payload);
+      await checkPeriodStorage(month, year);
     } catch (e) {
       const msg = String(e.message || "");
       if (msg.includes("No existe informacion") || msg.includes("Error API (404)")) {
@@ -223,6 +254,7 @@ export default function App() {
         const [metaRes] = await Promise.all([api("/api/mapping/meta").then((r) => safeJson(r))]);
         setMappingMeta(metaRes);
         await refreshPeriods();
+        await checkPeriodStorage(periodMonth, periodYear);
       } catch (e) {
         setError(e.message);
       } finally {
@@ -232,6 +264,10 @@ export default function App() {
 
     bootstrap();
   }, []);
+
+  useEffect(() => {
+    checkPeriodStorage(periodMonth, periodYear);
+  }, [periodMonth, periodYear]);
 
   const savePeriod = async () => {
     if (!sourceRows.length) {
@@ -254,6 +290,7 @@ export default function App() {
       const payload = await safeJson(response);
       hydrateState(payload);
       await refreshPeriods();
+      await checkPeriodStorage(periodMonth, periodYear);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -278,6 +315,7 @@ export default function App() {
       const payload = await safeJson(response);
       hydrateState(payload);
       await refreshPeriods();
+      await checkPeriodStorage(periodMonth, periodYear);
       setTab("partidas");
     } catch (e) {
       setError(e.message);
@@ -953,6 +991,11 @@ export default function App() {
         {reportData && tab === "control" && (
           <section className="panel">
             <h3>Controles de calidad</h3>
+            <p>Guardado en BBDD: <strong className={periodCheck.exists ? "ok" : "bad"}>{periodCheck.exists ? "OK" : "NO"}</strong></p>
+            <p>Periodo seleccionado: <strong>{String(periodMonth).padStart(2, "0")}/{periodYear}</strong></p>
+            <p>Filas guardadas: <strong>{periodCheck.rowCount}</strong></p>
+            <p>Mapeos manuales guardados: <strong>{periodCheck.mappingCount}</strong></p>
+            <p>Ultima carga guardada: <strong>{periodCheck.uploadedAt ? new Date(periodCheck.uploadedAt).toLocaleString("es-ES") : "-"}</strong></p>
             <p>Lineas analizadas: <strong>{checks.analyzed}</strong></p>
             <p>Sin mapear: <strong>{checks.unmapped}</strong></p>
             <p>Diferencia balanza inicial: <strong>{fmt(reportData.validations.trialBalanceInitialDifference)}</strong></p>
