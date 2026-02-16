@@ -1009,10 +1009,6 @@ export default function App() {
                 )}
               </div>
             ))}
-            <p className="grand-total">
-              <span>Total del periodo (Resultado PyG)</span>
-              <span>{toDisplay(showEur ? reportData.pnl.resultadoAntesImpuestosEur : reportData.pnl.resultadoAntesImpuestosMx, showEur)}</span>
-            </p>
             <div className="result-card">
               <span className="label">Resultado del periodo</span>
               <strong className={(showEur ? reportData.pnl.resultadoAntesImpuestosEur : reportData.pnl.resultadoAntesImpuestosMx) < 0 ? "bad" : "ok"}>
