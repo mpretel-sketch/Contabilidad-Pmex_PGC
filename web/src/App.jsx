@@ -150,6 +150,8 @@ export default function App() {
   const [detailScrollTop, setDetailScrollTop] = useState(0);
   const [detailViewportHeight, setDetailViewportHeight] = useState(560);
   const [detailTableWidth, setDetailTableWidth] = useState(2860);
+  const [detailScrollLeft, setDetailScrollLeft] = useState(0);
+  const [detailMaxScrollLeft, setDetailMaxScrollLeft] = useState(0);
 
   useEffect(() => {
     localStorage.setItem("pmex_period_month", String(periodMonth));
@@ -534,16 +536,22 @@ export default function App() {
   useEffect(() => {
     if (tab !== "partidas") return;
     setDetailScrollTop(0);
+    setDetailScrollLeft(0);
     if (detailTableRef.current) detailTableRef.current.scrollTop = 0;
+    if (detailTableRef.current) detailTableRef.current.scrollLeft = 0;
     if (detailTopScrollRef.current) detailTopScrollRef.current.scrollLeft = 0;
   }, [detailSearch, statusFilter, tab]);
 
   useEffect(() => {
     const updateWidths = () => {
-      const tableEl = detailTableRef.current?.querySelector(".detail-table");
-      if (!tableEl) return;
+      const wrapEl = detailTableRef.current;
+      const tableEl = wrapEl?.querySelector(".detail-table");
+      if (!tableEl || !wrapEl) return;
       const nextWidth = Math.ceil(tableEl.scrollWidth || 2860);
       setDetailTableWidth(nextWidth);
+      const nextMaxLeft = Math.max(0, wrapEl.scrollWidth - wrapEl.clientWidth);
+      setDetailMaxScrollLeft(nextMaxLeft);
+      setDetailScrollLeft(Math.min(wrapEl.scrollLeft || 0, nextMaxLeft));
     };
     updateWidths();
     window.addEventListener("resize", updateWidths);
@@ -563,6 +571,9 @@ export default function App() {
   const onDetailTableScroll = (event) => {
     setDetailScrollTop(event.currentTarget.scrollTop || 0);
     setDetailViewportHeight(event.currentTarget.clientHeight || 560);
+    const maxLeft = Math.max(0, event.currentTarget.scrollWidth - event.currentTarget.clientWidth);
+    setDetailMaxScrollLeft(maxLeft);
+    setDetailScrollLeft(Math.min(event.currentTarget.scrollLeft || 0, maxLeft));
     if (detailTopScrollRef.current) {
       if (syncScrollLockRef.current) return;
       syncScrollLockRef.current = true;
@@ -571,6 +582,23 @@ export default function App() {
         syncScrollLockRef.current = false;
       });
     }
+  };
+
+  const scrollDetailHorizontally = (delta) => {
+    const wrapEl = detailTableRef.current;
+    if (!wrapEl) return;
+    const nextLeft = Math.max(0, Math.min(wrapEl.scrollLeft + delta, wrapEl.scrollWidth - wrapEl.clientWidth));
+    wrapEl.scrollLeft = nextLeft;
+    setDetailScrollLeft(nextLeft);
+  };
+
+  const onDetailRangeScroll = (event) => {
+    const wrapEl = detailTableRef.current;
+    if (!wrapEl) return;
+    const nextLeft = Number(event.target.value || 0);
+    wrapEl.scrollLeft = nextLeft;
+    if (detailTopScrollRef.current) detailTopScrollRef.current.scrollLeft = nextLeft;
+    setDetailScrollLeft(nextLeft);
   };
 
   return (
@@ -739,6 +767,19 @@ export default function App() {
               <span>Filas visibles: {virtualRows.rows.length}</span>
               <span>Total filtradas: {virtualRows.total}</span>
               <span>Render virtual activo</span>
+            </div>
+            <div className="table-nav">
+              <button type="button" className="mini-btn" onClick={() => scrollDetailHorizontally(-320)}>←</button>
+              <input
+                className="table-nav-range"
+                type="range"
+                min={0}
+                max={Math.max(0, detailMaxScrollLeft)}
+                step={1}
+                value={Math.min(detailScrollLeft, Math.max(0, detailMaxScrollLeft))}
+                onChange={onDetailRangeScroll}
+              />
+              <button type="button" className="mini-btn" onClick={() => scrollDetailHorizontally(320)}>→</button>
             </div>
             <div className="table-scroll-top" ref={detailTopScrollRef} onScroll={onTopHorizontalScroll}>
               <div className="table-scroll-inner" style={{ width: `${detailTableWidth}px` }} />

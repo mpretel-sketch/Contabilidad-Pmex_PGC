@@ -27,13 +27,13 @@ body {
     radial-gradient(circle at 0% 0%, #d7e6f7 0, transparent 35%),
     radial-gradient(circle at 100% 100%, #d3efe8 0, transparent 35%),
     var(--bg);
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 html,
 #root {
   width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 button,
@@ -312,7 +312,7 @@ select {
   display: grid;
   gap: 16px;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .sidebar {
@@ -394,7 +394,7 @@ select {
 .cards {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   align-items: stretch;
 }
 
@@ -403,7 +403,7 @@ select {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px 12px;
-  min-height: 96px;
+  min-height: 86px;
   overflow: hidden;
 }
 
@@ -421,7 +421,7 @@ select {
 .card strong {
   display: block;
   margin-top: 6px;
-  font-size: 28px;
+  font-size: clamp(20px, 1.9vw, 28px);
   letter-spacing: -0.01em;
   line-height: 1.1;
   white-space: nowrap;
@@ -502,7 +502,7 @@ select {
 
 .table-wrap {
   margin-top: 12px;
-  overflow-x: auto;
+  overflow-x: scroll;
   overflow-y: auto;
   height: clamp(360px, 58vh, 760px);
   max-height: none;
@@ -513,6 +513,7 @@ select {
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
   touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table-scroll-top {
@@ -552,8 +553,8 @@ table {
 }
 
 .detail-table {
-  min-width: 3600px;
-  width: 3600px;
+  min-width: 3200px;
+  width: max-content;
   table-layout: fixed;
 }
 
@@ -590,13 +591,25 @@ tr:hover {
 .detail-table .cell-input,
 .detail-table .cell-select {
   width: 100%;
-  min-width: 92px;
+  min-width: 84px;
   font-size: 12px;
 }
 
 .detail-table .cell-input.num {
   text-align: right;
-  min-width: 92px;
+  min-width: 84px;
+}
+
+.table-nav {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-nav-range {
+  flex: 1;
+  min-width: 140px;
 }
 
 .table-wrap::-webkit-scrollbar,
@@ -901,5 +914,15 @@ tr:hover {
 @media (max-width: 640px) {
   .cards {
     grid-template-columns: 1fr;
+  }
+
+  .table-nav {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
   }
 }
