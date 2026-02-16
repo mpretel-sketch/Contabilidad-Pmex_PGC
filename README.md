@@ -3,7 +3,8 @@
 Aplicacion full-stack para convertir balanzas CONTPAQi/NIF Mexico a estructura PGC 2007 (Espana), con:
 
 - Persistencia en BBDD SQLite por periodo (mes/anio).
-- Sobrescritura automatica si vuelves a subir el mismo periodo.
+- Sobrescritura automatica al guardar si el periodo ya existe.
+- Flujo mensual: subir archivo -> revisar/mapear/cuadrar -> guardar en BBDD.
 - Mapeo automatico de cuentas por prefijos.
 - Edicion manual de partidas al maximo detalle (SID/SIA/Cargos/Abonos/SFD/SFA).
 - Override manual de mapeo PGC por linea (cuenta, nombre, grupo y subgrupo).
@@ -54,8 +55,8 @@ Columnas equivalentes (admite variaciones de nombre):
 - `GET /api/health`
 - `GET /api/periods`
 - `GET /api/periods/:year/:month`
-- `POST /api/periods/upload` (multipart, guarda/sobrescribe periodo)
-- `POST /api/periods/save` (guarda edicion manual del periodo)
+- `POST /api/periods/upload` (multipart, analiza sin persistir)
+- `POST /api/periods/save` (persiste el periodo solo si todo esta mapeado y cuadra)
 - `GET /api/sample`
 - `GET /api/mapping/meta`
 - `POST /api/convert` (JSON)

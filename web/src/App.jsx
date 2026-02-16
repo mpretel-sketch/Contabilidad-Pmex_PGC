@@ -116,6 +116,7 @@ export default function App() {
   const [expanded, setExpanded] = useState("");
   const [mappingMeta, setMappingMeta] = useState(null);
   const [detailSearch, setDetailSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("todos");
   const [periodMonth, setPeriodMonth] = useState(() => Number(localStorage.getItem("pmex_period_month")) || now.getMonth() + 1);
   const [periodYear, setPeriodYear] = useState(() => Number(localStorage.getItem("pmex_period_year")) || now.getFullYear());
   const [periods, setPeriods] = useState([]);
@@ -171,7 +172,6 @@ export default function App() {
         const [metaRes] = await Promise.all([api("/api/mapping/meta").then((r) => r.json())]);
         setMappingMeta(metaRes);
         await refreshPeriods();
-        await loadPeriod(periodMonth, periodYear);
       } catch (e) {
         setError(e.message);
       } finally {
@@ -338,7 +338,6 @@ export default function App() {
 
   const filteredRows = useMemo(() => {
     const q = detailSearch.trim().toLowerCase();
-    if (!q) return sourceRows;
     return sourceRows.filter((row) => row.code.toLowerCase().includes(q) || row.name.toLowerCase().includes(q));
   }, [sourceRows, detailSearch]);
 
@@ -348,11 +347,32 @@ export default function App() {
     return map;
   }, [conversion]);
 
+  const filteredRowsByStatus = useMemo(() => {
+    return filteredRows.filter((row) => {
+      const c = convertedByRowId.get(row._rowId);
+      const isSummary = Boolean(c?.isSummaryLine);
+      const isMapped = Boolean(c && c.pgcCode !== "SIN MAPEO");
+      if (statusFilter === "sumatorias") return isSummary;
+      if (statusFilter === "mapeadas") return !isSummary && isMapped;
+      if (statusFilter === "sin-mapear") return !isSummary && !isMapped;
+      return true;
+    });
+  }, [filteredRows, convertedByRowId, statusFilter]);
+
   const coverageClass = (coverage = 0) => {
     if (coverage >= 95) return "ok";
     if (coverage >= 80) return "warn";
     return "bad";
   };
+
+  const checks = useMemo(() => {
+    const unmapped = conversion?.metadata?.unmappedCount || 0;
+    const analyzed = conversion?.metadata?.analyzedRowCount || 0;
+    const trialDiff = Math.abs(conversion?.validations?.trialBalanceFinalDifference || 0);
+    const balanceDiff = Math.abs(conversion?.balanceSheet?.differenceMXN || 0);
+    const canSave = conversion && sourceRows.length > 0 && analyzed > 0 && unmapped === 0 && trialDiff <= 0.01 && balanceDiff <= 0.01;
+    return { unmapped, analyzed, trialDiff, balanceDiff, canSave };
+  }, [conversion, sourceRows]);
 
   return (
     <div className="app-shell">
@@ -381,7 +401,9 @@ export default function App() {
             <input type="number" step="0.001" value={exchangeRate} onChange={(e) => setExchangeRate(Number.parseFloat(e.target.value) || 0.046)} />
           </div>
           <button type="button" className="btn subtle" onClick={() => setShowEur((s) => !s)}>{showEur ? "EUR" : "MXN"}</button>
-          <button type="button" className="btn" onClick={savePeriod}>Guardar periodo</button>
+          <button type="button" className="btn" onClick={savePeriod} disabled={!checks.canSave}>
+            Guardar periodo
+          </button>
           <button type="button" className="btn" onClick={onExport}>Exportar XLSX</button>
         </div>
       </header>
@@ -402,8 +424,18 @@ export default function App() {
           <article className="card"><span className="label">Lineas archivo</span><strong>{conversion?.metadata?.rowCount || sourceRows.length}</strong></article>
           <article className="card"><span className="label">Lineas analizadas</span><strong>{conversion?.metadata?.analyzedRowCount || 0}</strong></article>
           <article className="card"><span className="label">Sumatorias excluidas</span><strong>{conversion?.metadata?.summaryExcludedCount || 0}</strong></article>
-          <article className="card"><span className="label">Cobertura mapeo</span><strong className={coverageClass(conversion?.metadata?.mappedCoveragePct || 0)}>{fmt(conversion?.metadata?.mappedCoveragePct || 0)}%</strong></article>
-        </section>
+            <article className="card"><span className="label">Cobertura mapeo</span><strong className={coverageClass(conversion?.metadata?.mappedCoveragePct || 0)}>{fmt(conversion?.metadata?.mappedCoveragePct || 0)}%</strong></article>
+          </section>
+        {conversion && (
+          <section className="panel">
+            <h3>Estado de validacion para guardar</h3>
+            <p>Lineas analizadas: <strong>{checks.analyzed}</strong></p>
+            <p>Sin mapear: <strong>{checks.unmapped}</strong></p>
+            <p>Dif. balanza final: <strong>{fmt(conversion.validations.trialBalanceFinalDifference)}</strong></p>
+            <p>Dif. balance PGC: <strong>{fmt(conversion.balanceSheet.differenceMXN)}</strong></p>
+            <p><strong>{checks.canSave ? "Listo para guardar en BBDD" : "No se puede guardar hasta corregir mapeo/cuadre"}</strong></p>
+          </section>
+        )}
 
         <section className="panel">
           <h3>Periodos guardados</h3>
@@ -425,6 +457,12 @@ export default function App() {
             </div>
             <div className="controls">
               <input type="text" placeholder="Buscar partida por cuenta o descripcion" value={detailSearch} onChange={(e) => setDetailSearch(e.target.value)} />
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="todos">Todos los estados</option>
+                <option value="sin-mapear">Sin mapear</option>
+                <option value="mapeadas">Mapeadas</option>
+                <option value="sumatorias">Sumatorias excluidas</option>
+              </select>
             </div>
             <div className="table-wrap">
               <table className="detail-table">
@@ -436,7 +474,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((row) => {
+                  {filteredRowsByStatus.map((row) => {
                     const manual = manualMappings[row._rowId] || { pgc: "", pgcName: "", grupo: "Sin clasificar", subgrupo: "Sin clasificar" };
                     const converted = convertedByRowId.get(row._rowId);
                     const isSummary = Boolean(converted?.isSummaryLine);

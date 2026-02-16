@@ -83,6 +83,25 @@ app.post("/api/periods/save", (req, res) => {
     }
 
     const normalized = normalizeRows(rows);
+    const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings, { month, year });
+    const hasUnmapped = conversion.metadata.unmappedCount > 0;
+    const hasAnalyzedRows = conversion.metadata.analyzedRowCount > 0;
+    const trialDiff = Math.abs(conversion.validations.trialBalanceFinalDifference);
+    const balanceDiff = Math.abs(conversion.balanceSheet.differenceMXN);
+    const canPersist = hasAnalyzedRows && !hasUnmapped && trialDiff <= 0.01 && balanceDiff <= 0.01;
+
+    if (!canPersist) {
+      return res.status(400).json({
+        error: "No se puede guardar: hay partidas sin mapear o descuadre en la informacion.",
+        validations: {
+          analyzedRowCount: conversion.metadata.analyzedRowCount,
+          unmappedCount: conversion.metadata.unmappedCount,
+          trialBalanceFinalDifference: conversion.validations.trialBalanceFinalDifference,
+          balanceDifferenceMXN: conversion.balanceSheet.differenceMXN
+        }
+      });
+    }
+
     savePeriodData({
       year,
       month,
@@ -91,8 +110,6 @@ app.post("/api/periods/save", (req, res) => {
       exchangeRate: Number(exchangeRate) || 0.046,
       filename: period.filename || "manual-save"
     });
-
-    const conversion = convertRows(normalized.rows, Number(exchangeRate) || 0.046, manualMappings, { month, year });
     return res.json({
       ...conversion,
       sourceRows: normalized.rows,
@@ -119,21 +136,12 @@ app.post("/api/periods/upload", upload.single("file"), (req, res) => {
     const exchangeRate = Number(req.body.exchangeRate) || 0.046;
     const rows = parseWorkbookBuffer(req.file.buffer);
 
-    savePeriodData({
-      year,
-      month,
-      rows,
-      manualMappings: {},
-      exchangeRate,
-      filename: req.file.originalname
-    });
-
     const conversion = convertRows(rows, exchangeRate, {}, { month, year });
     return res.json({
       ...conversion,
       sourceRows: rows,
       manualMappings: {},
-      storage: { year, month, exchangeRate, filename: req.file.originalname }
+      storage: { year, month, exchangeRate, filename: req.file.originalname, persisted: false }
     });
   } catch (error) {
     return res.status(400).json({ error: error.message || "No se pudo leer o guardar el archivo." });
