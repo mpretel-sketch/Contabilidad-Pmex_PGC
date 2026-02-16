@@ -736,18 +736,6 @@ export default function App() {
           <article className="card"><span className="label">Cobertura mapeo</span><strong className={coverageClass(reportData?.metadata?.mappedCoveragePct || 0)}>{fmt(reportData?.metadata?.mappedCoveragePct || 0)}%</strong></article>
           <article className="card"><span className="label">Descuadre final</span><strong className={Math.abs(reportData?.validations?.trialBalanceFinalDifference || 0) <= 0.01 ? "ok" : "bad"}>{fmt(Math.abs(reportData?.validations?.trialBalanceFinalDifference || 0))}</strong></article>
           </section>
-        {conversion && (
-          <section className="panel">
-            <h3>Estado de validacion para guardar</h3>
-            <p>Lineas analizadas: <strong>{checks.analyzed}</strong></p>
-            <p>Sin mapear: <strong>{checks.unmapped}</strong></p>
-            <p>Dif. balanza final: <strong>{fmt(conversion.validations.trialBalanceFinalDifference)}</strong></p>
-            <p>Dif. balance PGC: <strong>{fmt(conversion.balanceSheet.differenceMXN)}</strong></p>
-            <p>Dif. balance PGC ajustado: <strong>{fmt(balanceDrift)}</strong></p>
-            <p><strong>{checks.canSave ? "Listo para guardar en BBDD" : "No se puede guardar hasta dejar sin mapear=0 y balanza final cuadrada"}</strong></p>
-          </section>
-        )}
-
         {conversion && tab === "partidas" && (
           <section>
             <div className="partidas-toolbar">
@@ -965,10 +953,14 @@ export default function App() {
         {reportData && tab === "control" && (
           <section className="panel">
             <h3>Controles de calidad</h3>
+            <p>Lineas analizadas: <strong>{checks.analyzed}</strong></p>
+            <p>Sin mapear: <strong>{checks.unmapped}</strong></p>
             <p>Diferencia balanza inicial: <strong>{fmt(reportData.validations.trialBalanceInitialDifference)}</strong></p>
             <p>Diferencia balanza final: <strong>{fmt(reportData.validations.trialBalanceFinalDifference)}</strong></p>
             <p>Diferencia balance PGC: <strong>{fmt(reportData.balanceSheet.differenceMXN)}</strong></p>
+            <p>Diferencia balance PGC ajustado: <strong>{fmt(balanceDrift)}</strong></p>
             <p>Cuentas sin mapeo (lineas analizadas): <strong>{reportData.metadata.unmappedCount}</strong></p>
+            <p><strong>{checks.canSave ? "Listo para guardar en BBDD" : "No se puede guardar hasta dejar sin mapear=0 y balanza final cuadrada"}</strong></p>
           </section>
         )}
 
