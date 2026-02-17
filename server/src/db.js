@@ -5,10 +5,14 @@ import { DatabaseSync } from "node:sqlite";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dataDir = path.resolve(__dirname, "../data");
+const configuredDataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : null;
+const configuredDbPath = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : null;
+const dataDir = configuredDataDir || path.resolve(__dirname, "../data");
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const dbPath = path.join(dataDir, "contabilidad.db");
+const dbPath = configuredDbPath || path.join(dataDir, "contabilidad.db");
+const dbParentDir = path.dirname(dbPath);
+if (!fs.existsSync(dbParentDir)) fs.mkdirSync(dbParentDir, { recursive: true });
 const db = new DatabaseSync(dbPath);
 
 db.exec(`
